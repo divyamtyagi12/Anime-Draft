@@ -8,7 +8,7 @@ Ratings are predefined (never invented per battle). The ±5 % band means a
 character needs to be within ~10 % of the opponent to ever win an upset; an
 overwhelming gap (e.g. 99 vs 80) can never be overturned.
 
-Ultimate tiebreaker (Grand Final only, when the six clashes finish 3-3)
+Ultimate tiebreaker (Grand Final only; with five clashes a tie cannot occur, so this is a safety net)
 -----------------------------------------------------------------------
     base  = 0.8 × mean(slot ratings) + 0.2 × mean(each character's peak rating)
     score = base × U(0.97, 1.03)
@@ -121,7 +121,7 @@ def ultimate_tiebreak(team1: Team, team2: Team, rng: random.Random) -> Tiebreak:
 
 
 def play_match(team1: Team, team2: Team, rng: random.Random, *, final: bool = False) -> MatchResult:
-    """Six category clashes. In a final, a 3-3 result triggers the ultimate tiebreaker."""
+    """Five category clashes (odd count, so no draws). Safety net: an equal final still gets the tiebreaker."""
     clashes = [
         resolve_clash(i, cat, team1[cat], team2[cat], rng)
         for i, cat in enumerate(CATEGORY_KEYS, start=1)

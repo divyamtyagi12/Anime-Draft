@@ -30,7 +30,6 @@ create table if not exists characters (
   image_url      text,
   image_file_id  text,                            -- cached Telegram file_id
   attack         smallint not null check (attack between 1 and 100),
-  defense        smallint not null check (defense between 1 and 100),
   tanking        smallint not null check (tanking between 1 and 100),
   speed          smallint not null check (speed between 1 and 100),
   healing        smallint not null check (healing between 1 and 100),
@@ -49,10 +48,17 @@ alter table characters add constraint characters_series_check
 create table if not exists character_categories (
   character_id  text not null references characters(id) on delete cascade,
   category      text not null check (category in
-                  ('ATTACK', 'DEFENSE', 'TANKING', 'SPEED', 'HEALING', 'INTELLIGENCE')),
+                  ('ATTACK', 'TANKING', 'SPEED', 'HEALING', 'INTELLIGENCE')),
   primary key (character_id, category)
 );
 create index if not exists idx_character_categories_category on character_categories(category);
+
+-- Migration for databases created when 'Defense' still existed (safe to re-run).
+delete from character_categories where category = 'DEFENSE';
+alter table character_categories drop constraint if exists character_categories_category_check;
+alter table character_categories add constraint character_categories_category_check
+  check (category in ('ATTACK', 'TANKING', 'SPEED', 'HEALING', 'INTELLIGENCE'));
+alter table characters drop column if exists defense;
 
 -- ───────────── games ─────────────
 create table if not exists games (
@@ -119,7 +125,6 @@ create table if not exists teams (
   id              bigint generated always as identity primary key,
   game_player_id  bigint not null unique references game_players(id) on delete cascade,
   attack_id       text not null references characters(id),
-  defense_id      text not null references characters(id),
   tanking_id      text not null references characters(id),
   speed_id        text not null references characters(id),
   healing_id      text not null references characters(id),
@@ -183,6 +188,12 @@ create table if not exists standings (
 );
 create index if not exists idx_standings_rank
   on standings(game_id, points desc, clash_difference desc, clashes_won desc);
+
+-- Migration (continued): drop Defense leftovers from old databases (safe to re-run).
+delete from draft_offers  where category = 'DEFENSE';
+delete from draft_choices where category = 'DEFENSE';
+delete from match_clashes where category = 'DEFENSE';
+alter table teams drop column if exists defense_id;
 
 -- ════════════════ atomic game operations (called via RPC) ════════════════
 -- Row locks (FOR UPDATE) make these safe under simultaneous button presses.

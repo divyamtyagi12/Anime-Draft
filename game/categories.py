@@ -1,4 +1,4 @@
-"""The six draft / clash categories (order = draft order = clash order)."""
+"""The five draft / clash categories (order = draft order = clash order)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -22,7 +22,6 @@ class CategoryInfo:
 
 CATEGORIES: tuple[CategoryInfo, ...] = (
     CategoryInfo("ATTACK", "⚔️", "Attack"),
-    CategoryInfo("DEFENSE", "🛡️", "Defense"),
     CategoryInfo("TANKING", "🏰", "Tanking"),
     CategoryInfo("SPEED", "⚡", "Speed"),
     CategoryInfo("HEALING", "💚", "Healing"),

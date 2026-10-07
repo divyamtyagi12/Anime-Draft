@@ -1,17 +1,17 @@
 # 🎴 ANIME DRAFT — Telegram multiplayer draft-tournament bot
 
 Lobby in a **group**, drafting and battles in each player's **DM**.
-Franchises: **Re:ZERO · Black Clover · Death Note · Ben 10** (81 characters, 6 categories). Ben 10 includes the main cast, villains and Omnitrix aliens as draftable cards.
+Franchises: **Re:ZERO · Black Clover · Death Note · Ben 10** (81 characters, 5 categories). Ben 10 includes the main cast, villains and Omnitrix aliens as draftable cards.
 
 Python 3.12 · python-telegram-bot (async) · Supabase/PostgreSQL · long polling (webhook-ready).
 
 ## Game flow
 1. `/start` in a group → lobby (⚔️ JOIN / 🚪 LEAVE / 🔥 FORCE START). 3–8 players. Joining requires having pressed Start in the bot's DM.
-2. FORCE START (host/admin) → every player is DM-checked, the lobby locks, and each player drafts 6 characters (5 random offers per category). Progress (✅/⏳, never characters) is shown in the group.
-3. Round-robin league: each match = 6 clashes, fought privately with live-edited DM cards and a scorecard to both players. The group only gets the standings table (edited in place after each round).
-4. Top two → Grand Final (4+ clashes wins; 3-3 → 🔥 Ultimate Tiebreaker on whole-team strength). Champion announced in the group.
+2. FORCE START (host/admin) → every player is DM-checked, the lobby locks, and each player drafts 5 characters (5 random offers per category). Progress (✅/⏳, never characters) is shown in the group.
+3. Round-robin league: each match = 5 clashes, fought privately with live-edited DM cards and a scorecard to both players. The group only gets the standings table (edited in place after each round).
+4. Top two → Grand Final (3+ clashes wins; no ties possible with 5 clashes). Champion announced in the group.
 
-Scoring: win 3 / draw 1 / loss 0. Ranking: points → clash difference → clashes won → head-to-head → deterministic random.
+Scoring: win 3 / loss 0 (5 clashes → no draws). Ranking: points → clash difference → clashes won → head-to-head → deterministic random.
 
 ## Project layout
 ```

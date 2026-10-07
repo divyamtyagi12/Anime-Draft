@@ -31,7 +31,7 @@ def test_death_note_is_intelligence_only_and_physically_weak():
     assert {"light", "l", "near", "mello", "misora"} <= names
     for c in dn:
         assert c["categories"] == ["INTELLIGENCE"]
-        assert max(c["attack"], c["defense"], c["tanking"], c["speed"]) <= 35
+        assert max(c["attack"], c["tanking"], c["speed"]) <= 35
     by = {c["id"]: c for c in dn}
     for k in ("light", "l", "near"):
         assert by[k]["intelligence"] >= 95
@@ -41,8 +41,8 @@ def test_spec_examples():
     by = {c["id"]: c for c in CHARACTERS}
     assert by["felix"]["categories"] == ["HEALING"]
     assert by["mimosa"]["categories"] == ["HEALING"]
-    assert set(by["reinhard"]["categories"]) == {"ATTACK", "DEFENSE", "TANKING", "SPEED"}
-    assert set(by["asta"]["categories"]) == {"ATTACK", "DEFENSE", "TANKING", "SPEED"}
+    assert set(by["reinhard"]["categories"]) == {"ATTACK", "TANKING", "SPEED"}
+    assert set(by["asta"]["categories"]) == {"ATTACK", "TANKING", "SPEED"}
     required = ["reinhard", "reid", "cecilus", "subaru", "emilia", "beatrice", "roswaal", "regulus", "garfiel",
                 "elsa", "wilhelm", "julius_j", "felix", "rem", "ram", "priscilla", "echidna", "otto", "crusch",
                 "capella", "sirius", "petelgeuse", "asta", "yuno", "yami", "noelle", "mereoleona", "julius_n",
@@ -64,4 +64,4 @@ def test_ben10_characters_and_aliens():
     assert b10["xlr8"]["categories"] == ["SPEED"]
     assert b10["grey_matter"]["categories"] == ["INTELLIGENCE"]
     assert "HEALING" in b10["swampfire"]["categories"] and "HEALING" in b10["gwen"]["categories"]
-    assert set(b10["diamondhead"]["categories"]) == {"DEFENSE", "TANKING"}
+    assert set(b10["diamondhead"]["categories"]) == {"TANKING"}

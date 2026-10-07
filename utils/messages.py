@@ -27,7 +27,7 @@ def welcome_dm() -> str:
         "<b>How to play</b>\n"
         "1️⃣ Add me to a group and send /start there\n"
         "2️⃣ Everyone presses ⚔️ JOIN (3–8 players)\n"
-        "3️⃣ Draft six characters here in DM\n"
+        "3️⃣ Draft five characters here in DM\n"
         "4️⃣ Round-robin league → 🔥 Grand Final\n\n"
         "Games must be created in a <b>group</b>. See /rules and /help."
     )
@@ -50,15 +50,14 @@ def rules_text() -> str:
     return (
         "📜 <b>ANIME DRAFT — Rules</b>\n\n"
         "<b>Franchises:</b> Re:ZERO · Black Clover · Death Note · Ben 10\n\n"
-        "<b>Draft</b> — in your DM you build a team of six, one per category: "
-        "⚔️ Attack · 🛡️ Defense · 🏰 Tanking · ⚡ Speed · 💚 Healing · 🧠 Intelligence. "
+        "<b>Draft</b> — in your DM you build a team of five, one per category: "
+        "⚔️ Attack · 🏰 Tanking · ⚡ Speed · 💚 Healing · 🧠 Intelligence. "
         "Each category offers 5 random eligible characters. A character can't fill two of your slots.\n\n"
-        "<b>League</b> — everyone fights everyone once. Each match = 6 clashes "
+        "<b>League</b> — everyone fights everyone once. Each match = 5 clashes "
         "(category vs same category). Ratings are fixed; a small ±5% luck factor only matters in close fights.\n"
-        "Win = 3 pts · Draw (3-3) = 1 pt · Loss = 0.\n"
+        "Win (3+ clashes) = 3 pts · Loss = 0.\n"
         "Ranking: points → clash difference → clashes won → head-to-head → random.\n\n"
-        "<b>Grand Final</b> — top two meet. 4+ clashes wins. A 3-3 goes to the "
-        "🔥 Ultimate Tiebreaker (whole-team strength)."
+        "<b>Grand Final</b> — top two meet. First to 3 clashes wins."
     )
 
 
@@ -172,7 +171,7 @@ def battle_progress_text(title: str, n1: str, n2: str, clashes: Sequence[ClashRe
 
 def tiebreak_text(title: str, n1: str, n2: str, result: MatchResult, reveal: bool) -> str:
     base = battle_progress_text(title, n1, n2, result.clashes, len(result.clashes))
-    lines = [base, "", "🔥 <b>ULTIMATE TIEBREAKER</b>", "Comparing the complete six-character teams…"]
+    lines = [base, "", "🔥 <b>ULTIMATE TIEBREAKER</b>", "Comparing the complete five-character teams…"]
     if reveal and result.tiebreak:
         tb = result.tiebreak
         w = n1 if tb.winner_side == 1 else n2
@@ -228,7 +227,7 @@ def final_announcement(n1: str, n2: str, result: MatchResult) -> str:
     lines = ["🏆 <b>ANIME DRAFT CHAMPIONSHIP</b> 🏆", "", "🔥 <b>GRAND FINAL RESULT</b>", "",
              f"TEAM {esc(n1.upper())}", f"<b>{result.p1_wins} - {result.p2_wins}</b>", f"TEAM {esc(n2.upper())}"]
     if result.tiebreak:
-        lines.append("<i>(3-3 — decided by the Ultimate Tiebreaker)</i>")
+        lines.append("<i>(level — decided by the Ultimate Tiebreaker)</i>")
     lines.append("")
     for c in result.clashes:
         info = CATEGORY_BY_KEY[c.category]

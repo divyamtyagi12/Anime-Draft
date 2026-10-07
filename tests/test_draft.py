@@ -17,7 +17,7 @@ def test_full_random_drafts_never_dead_end():
             assert not ({o.id for o in offers} & picked)
             assert all(cat in o.categories for o in offers)   # no fallback needed
             picked.add(rng.choice(offers).id)
-        assert len(picked) == 6
+        assert len(picked) == 5
 
 
 def test_offers_vary_between_games():

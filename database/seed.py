@@ -9,7 +9,7 @@ from data.characters import CHARACTERS
 from database.client import Database
 
 log = logging.getLogger(__name__)
-_FIELDS = ("id", "name", "series", "attack", "defense", "tanking", "speed", "healing",
+_FIELDS = ("id", "name", "series", "attack", "tanking", "speed", "healing",
            "intelligence", "rarity", "abilities", "description")
 
 
