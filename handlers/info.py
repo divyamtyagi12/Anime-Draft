@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+from telegram import Update
+from telegram.constants import ChatType
+from telegram.ext import ContextTypes
+
+from handlers.common import get_ctx
+from handlers.start import GROUP_TYPES
+from services import table_service
+from utils import messages as msg
+
+
+async def _game_for(ctx, update):
+    chat, user = update.effective_chat, update.effective_user
+    if chat.type in GROUP_TYPES:
+        return await ctx.games.active_for_group(chat.id) or await ctx.games.latest_for_group(chat.id)
+    for gp in await ctx.players.for_user(user.id, 10):
+        game = await ctx.games.get(gp["game_id"])
+        if game and game["status"] != "CANCELLED":
+            return game
+    return None
+
+
+async def team_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    ctx = get_ctx(context)
+    chat, user, message = update.effective_chat, update.effective_user, update.effective_message
+    if chat.type != ChatType.PRIVATE:
+        return await message.reply_html("🤫 Teams are secret! Use /team in my DM.")
+    for gp in await ctx.players.for_user(user.id, 10):
+        game = await ctx.games.get(gp["game_id"])
+        if not game or game["status"] == "CANCELLED":
+            continue
+        picks = await ctx.drafts.picks(gp["id"])
+        team = {p["category"]: ctx.catalog.get(p["character_id"]) for p in picks}
+        text = msg.team_text(team, locked=gp["draft_done"])
+        if not gp["draft_done"]:
+            text += "\n\n✍️ Draft in progress — use /draft if you lost the prompt."
+        return await message.reply_html(text)
+    await message.reply_html("You're not in any game yet. Join one from a group with /start!")
+
+
+async def table_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    ctx = get_ctx(context)
+    message = update.effective_message
+    game = await _game_for(ctx, update)
+    if not game:
+        return await message.reply_html("No game found.")
+    if game["status"] in ("LOBBY", "DRAFTING"):
+        return await message.reply_html("🏆 The league hasn't started yet.")
+    await message.reply_html(await table_service.table_message(ctx, game["id"]))
+
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    ctx = get_ctx(context)
+    message = update.effective_message
+    game = await _game_for(ctx, update)
+    if not game:
+        return await message.reply_html("No game found. Send /start in a group to create one.")
+    players = await ctx.players.list_for_game(game["id"])
+    st = game["status"]
+    lines = ["📊 <b>ANIME DRAFT — Status</b>", "", f"Stage: <b>{st}</b>", f"Players: {len(players)}"]
+    if st == "DRAFTING":
+        counts = await ctx.drafts.pick_counts([p["id"] for p in players])
+        lines += ["", msg.progress_text(players, counts)]
+    elif st in ("LEAGUE", "FINAL", "COMPLETED"):
+        ms = await ctx.matches.list_for_game(game["id"], "LEAGUE")
+        done = sum(1 for m in ms if m["status"] == "DONE")
+        lines.append(f"League matches: {done}/{len(ms)} played")
+        if st == "COMPLETED":
+            final = await ctx.matches.final_for_game(game["id"])
+            names = {p["id"]: p["display_name"] for p in players}
+            if final and final.get("winner_id"):
+                lines.append(f"👑 Champion: <b>{msg.esc(names.get(final['winner_id'], '?'))}</b>")
+    await message.reply_html("\n".join(lines))

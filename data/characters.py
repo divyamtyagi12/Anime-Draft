@@ -1,0 +1,215 @@
+"""Character database (source of truth; upserted into Supabase on start).
+
+Ratings are on a 1-100 scale, predefined and never re-rolled per battle.
+They are a *judgement call* reflecting canon feats as reasonably as possible
+(Re:ZERO web/light-novel included) — tune freely, then restart the bot.
+
+Stat order: (attack, defense, tanking, speed, healing, intelligence)
+Category codes: A=Attack D=Defense T=Tanking S=Speed H=Healing I=Intelligence
+"""
+from __future__ import annotations
+
+RZ, BC, DN = "Re:ZERO", "Black Clover", "Death Note"
+_CODES = {"A": "ATTACK", "D": "DEFENSE", "T": "TANKING", "S": "SPEED", "H": "HEALING", "I": "INTELLIGENCE"}
+_STAT_NAMES = ("attack", "defense", "tanking", "speed", "healing", "intelligence")
+
+
+def _rarity(stats: dict[str, int], cats: list[str]) -> str:
+    peak = max(stats[c.lower()] for c in cats)
+    if peak >= 95:
+        return "LEGENDARY"
+    if peak >= 88:
+        return "EPIC"
+    if peak >= 75:
+        return "RARE"
+    return "COMMON"
+
+
+def _c(cid, name, series, stats, codes, abilities, description):
+    s = dict(zip(_STAT_NAMES, stats))
+    cats = [_CODES[ch] for ch in codes]
+    return {
+        "id": cid, "name": name, "series": series, **s,
+        "rarity": _rarity(s, cats),
+        "abilities": list(abilities),
+        "description": description,
+        "categories": cats,
+    }
+
+
+CHARACTERS: list[dict] = [
+    # ───────────────────────── Re:ZERO ─────────────────────────
+    _c("reinhard", "Reinhard van Astrea", RZ, (99, 98, 97, 94, 60, 68), "ADTS",
+       ["Sword Saint", "Divine Protections", "Dragon Sword Reid"],
+       "The Sword Saint, blessed with so many Divine Protections that he is nearly unbeatable."),
+    _c("reid", "Reid Astrea", RZ, (97, 92, 90, 91, 15, 70), "ADS",
+       ["Legendary Swordsmanship", "Astrea Sword Arts", "Battle Mastery"],
+       "A legendary Astrea swordmaster whose skill rivals the strongest fighters alive."),
+    _c("cecilus", "Cecilus Segmunt", RZ, (96, 86, 82, 98, 10, 62), "ADS",
+       ["Peerless Swordsmanship", "Blinding Speed", "Untouchable Reflexes"],
+       "A Vollachian prodigy renowned for blinding speed and unmatched fighting instinct."),
+    _c("subaru", "Subaru Natsuki", RZ, (14, 16, 38, 22, 12, 64), "I",
+       ["Return by Death", "Hard-Learned Tactics", "Unbreakable Will"],
+       "Armed with Return by Death and a stubborn will, he wins by learning from every loss."),
+    _c("emilia", "Emilia", RZ, (79, 74, 66, 70, 64, 62), "ADH",
+       ["Ice Arts", "Spirit Magic", "Frozen Barriers"],
+       "A half-elf spirit mage who commands devastating ice magic."),
+    _c("beatrice", "Beatrice", RZ, (84, 80, 62, 56, 70, 92), "ADHI",
+       ["Yin Magic", "Al Shamak", "Forbidden Library Knowledge"],
+       "An artificial spirit and keeper of the Forbidden Library with centuries of knowledge."),
+    _c("roswaal", "Roswaal L Mathers", RZ, (91, 83, 72, 58, 52, 96), "ADHI",
+       ["Four-Element Magic", "Master Mage", "Grand Schemer"],
+       "A court mage of staggering magical talent and even greater cunning."),
+    _c("regulus", "Regulus Corneas", RZ, (74, 98, 99, 45, 10, 22), "DT",
+       ["Lion's Heart", "Authority of Greed", "Absolute Invulnerability"],
+       "The Sin Archbishop of Greed, shielded by an almost impenetrable invulnerability."),
+    _c("garfiel", "Garfiel Tinsel", RZ, (84, 86, 90, 88, 35, 40), "ADTS",
+       ["Beast Transformation", "Superhuman Reflexes", "Relentless Brawling"],
+       "A ferocious young brawler with a tiger's strength and an iron body."),
+    _c("elsa", "Elsa Granhiert", RZ, (78, 56, 75, 86, 40, 55), "ATS",
+       ["Bowels Hunter", "Dual Blades", "Cruel Resilience"],
+       "A notorious assassin who keeps fighting through wounds that would stop anyone else."),
+    _c("wilhelm", "Wilhelm van Astrea", RZ, (94, 84, 80, 82, 10, 78), "ADS",
+       ["Sword Demon", "Peerless Swordsmanship", "Battle-Hardened Experience"],
+       "The veteran Sword Demon, a swordsman refined by decades of war."),
+    _c("julius_j", "Julius Juukulius", RZ, (88, 82, 72, 85, 48, 82), "ADSH",
+       ["Spirit Arts", "Knight's Swordsmanship", "Royal Knight Training"],
+       "A royal knight who fights alongside quasi-spirits with graceful precision."),
+    _c("felix", "Felix Argyle", RZ, (46, 56, 40, 66, 98, 72), "H",
+       ["Master Healer", "Water Magic", "Battlefield Medic"],
+       "A knight with legendary healing magic who can mend near-fatal wounds."),
+    _c("rem", "Rem", RZ, (82, 72, 78, 72, 58, 52), "ADTH",
+       ["Oni Strength", "Morning Star", "Water Magic"],
+       "A devoted maid whose oni strength turns her into a fearsome warrior."),
+    _c("ram", "Ram", RZ, (68, 52, 48, 60, 38, 66), "A",
+       ["Wind Magic", "Clairvoyance", "Sharp Tongue"],
+       "A talented wind mage and capable support."),
+    _c("priscilla", "Priscilla Barielle", RZ, (82, 94, 95, 72, 55, 86), "DTHI",
+       ["Divine Protection of the Sun", "Absolute Luck", "Sovereign Presence"],
+       "A sovereign whose uncanny fortune bends events in her favor."),
+    _c("echidna", "Echidna", RZ, (50, 46, 36, 26, 38, 99), "I",
+       ["Witch of Greed", "Boundless Knowledge", "Tea Party Strategist"],
+       "The Witch of Greed, driven by an unquenchable hunger for knowledge."),
+    _c("otto", "Otto Suwen", RZ, (24, 32, 38, 45, 45, 80), "I",
+       ["Beast Whispering", "Merchant Acumen", "Silver Tongue"],
+       "A quick-witted merchant who talks his way out of anything."),
+    _c("crusch", "Crusch Karsten", RZ, (84, 80, 72, 82, 15, 90), "ADSI",
+       ["Wind Reading", "Crusch-Style Swordsmanship", "Brilliant Strategist"],
+       "A knight and statesman with a commanding tactical mind."),
+    _c("capella", "Capella Emerada Lugunica", RZ, (76, 55, 70, 76, 40, 72), "AS",
+       ["Shapeshifting", "Blood Manipulation", "Authority of Lust"],
+       "The shapeshifting Sin Archbishop of Lust, as slippery as she is dangerous."),
+    _c("sirius", "Sirius Romanée-Conti", RZ, (55, 42, 50, 58, 10, 74), "I",
+       ["Authority of Wrath", "Emotion Sharing", "Fanatical Command"],
+       "The Sin Archbishop of Wrath, who turns shared emotion into a weapon."),
+    _c("petelgeuse", "Petelgeuse Romanée-Conti", RZ, (78, 60, 66, 74, 15, 48), "AS",
+       ["Unseen Hands", "Authority of Sloth", "Fanatical Devotion"],
+       "The unhinged Sin Archbishop of Sloth who strikes with invisible hands."),
+    _c("al", "Al", RZ, (88, 80, 92, 76, 30, 62), "ADT",
+       ["Master Swordsman", "Incredible Durability", "Veteran Instincts"],
+       "A scarred helmeted veteran who simply refuses to go down."),
+    _c("anastasia", "Anastasia Hoshin", RZ, (30, 34, 34, 36, 12, 92), "I",
+       ["Merchant Genius", "Spirit Arts", "Cunning Negotiator"],
+       "A shrewd merchant-princess who wins battles on the ledger before they begin."),
+    _c("frederica", "Frederica Baumann", RZ, (76, 68, 74, 80, 45, 52), "ATS",
+       ["Beastman Strength", "Hidden Combat Skill", "Disciplined Footwork"],
+       "A refined maid who hides a beastman's ferocity beneath impeccable manners."),
+
+    # ───────────────────────── Black Clover ─────────────────────────
+    _c("asta", "Asta", BC, (93, 86, 89, 86, 25, 45), "ADTS",
+       ["Anti-Magic", "Demon-Slayer Sword", "Demon-Dweller Sword"],
+       "A magic-less boy whose anti-magic swords and sheer willpower make him a giant-killer."),
+    _c("yuno", "Yuno", BC, (92, 86, 82, 93, 30, 72), "ADS",
+       ["Wind Magic", "Spirit of Zephyr", "Spirit Dive"],
+       "A genius wind mage and Asta's eternal rival."),
+    _c("yami", "Yami Sukehiro", BC, (94, 90, 95, 88, 20, 62), "ADTS",
+       ["Dark Magic", "Dark Cloaking", "Black Slash"],
+       "The fearless Black Bulls captain whose dark magic and iron body are legendary."),
+    _c("noelle", "Noelle Silva", BC, (85, 82, 82, 70, 30, 52), "ADT",
+       ["Water Magic", "Valkyrie Armor", "Sea Dragon's Cradle"],
+       "A royal water mage whose power grows with every battle."),
+    _c("mereoleona", "Mereoleona Vermillion", BC, (94, 86, 90, 86, 20, 70), "ADTS",
+       ["Fire Magic", "Fire Reinforcement", "Raging Lion Combat"],
+       "A battle-mad fire mage who is among the strongest fighters in the kingdom."),
+    _c("julius_n", "Julius Novachrono", BC, (97, 95, 90, 90, 72, 97), "ADTSHI",
+       ["Time Magic", "Time Rewind", "Wizard King"],
+       "The Wizard King, master of Time Magic."),
+    _c("nacht", "Nacht Faust", BC, (86, 78, 72, 82, 35, 82), "ADSI",
+       ["Shadow Magic", "Shadow Familiars", "Veteran Tactician"],
+       "A shadow mage who hunts from the darkness."),
+    _c("luck", "Luck Voltia", BC, (88, 62, 66, 95, 12, 62), "AS",
+       ["Lightning Magic", "Lightning Charge", "Battle Frenzy"],
+       "A lightning-fast fighter who lives for the thrill of battle."),
+    _c("fuegoleon", "Fuegoleon Vermillion", BC, (88, 82, 80, 72, 15, 76), "AD",
+       ["Fire Magic", "Mana Reinforcement", "Crimson Lion Captain"],
+       "The noble Crimson Lion captain, a master of refined flame."),
+    _c("william", "William Vangeance", BC, (90, 85, 78, 76, 30, 82), "ADI",
+       ["Sun Magic", "Mana Zone", "Golden Dawn Captain"],
+       "The composed Golden Dawn captain with devastating light-based power."),
+    _c("mimosa", "Mimosa Vermillion", BC, (32, 56, 42, 48, 93, 56), "H",
+       ["Plant Magic", "Healing Magic", "Floral Barriers"],
+       "A gentle mage whose plant magic can restore even grave wounds."),
+    _c("charmy", "Charmy Pappitson", BC, (70, 60, 86, 60, 58, 36), "TH",
+       ["Sheep Magic", "Cotton Armor", "Bottomless Appetite"],
+       "A cheerful glutton who cushions allies — and herself — in layers of cotton."),
+    _c("grey", "Grey", BC, (44, 48, 42, 56, 12, 52), "S",
+       ["Transformation Magic", "Illusory Disguises", "Elusive Movement"],
+       "A shy mage who can transform into anyone or anything."),
+    _c("secre", "Secre Swallowtail", BC, (34, 42, 40, 55, 50, 56), "H",
+       ["Support Magic", "Mana Control", "Steady Resolve"],
+       "A dependable mage who shines in a supporting role."),
+    _c("vanessa", "Vanessa Enoteca", BC, (62, 56, 50, 60, 32, 62), "A",
+       ["Thread Magic", "Fate Threads", "Veteran Mage"],
+       "A thread mage with surprising control and a sharp sense of timing."),
+    _c("magna", "Magna Swing", BC, (70, 58, 62, 62, 10, 40), "A",
+       ["Flame Magic", "Mana Reinforcement", "Brawler's Grit"],
+       "A hot-blooded brawler who punches well above his rank."),
+    _c("zenon", "Zenon Zogratis", BC, (90, 85, 88, 86, 10, 50), "ADTS",
+       ["Devil Union", "Overwhelming Brute Strength", "Dark Triad Member"],
+       "A savage devil-bound fighter who crushes opponents head on."),
+    _c("dante", "Dante Zogratis", BC, (96, 92, 94, 90, 40, 86), "ADTSI",
+       ["Devil Union", "Overwhelming Power", "Dark Triad Leader"],
+       "The leader of the Dark Triad, a terrifying devil-empowered force."),
+    _c("vanica", "Vanica Zogratis", BC, (92, 88, 90, 88, 25, 62), "ADTS",
+       ["Devil Union", "Overwhelming Power", "Dark Triad Member"],
+       "A devil-bound warrior whose sheer force is hard to withstand."),
+    _c("lucius", "Lucius Zogratis", BC, (97, 96, 96, 92, 60, 92), "ADTSI",
+       ["Overwhelming Mana", "Devil-Class Power", "Calculated Ruthlessness"],
+       "One of the most terrifying powers in the Black Clover world."),
+    _c("finral", "Finral Roulacase", BC, (60, 64, 60, 86, 35, 62), "S",
+       ["Spatial Magic", "Portals", "Quick Repositioning"],
+       "A spatial mage who bends distance to his will."),
+    _c("gauche", "Gauche Adlai", BC, (68, 52, 55, 80, 12, 60), "S",
+       ["Mirror Magic", "Mana Reinforcement", "Doting Brother"],
+       "A skilled mage with sharp reflexes and a fierce sibling bond."),
+    _c("nozel", "Nozel Silva", BC, (92, 90, 92, 85, 20, 78), "ADTI",
+       ["Mercury Magic", "Mana Zone", "Silver Eagles Captain"],
+       "The proud Silver Eagles captain, a master of mercury magic."),
+
+    # ───────────────────────── Death Note ─────────────────────────
+    # Value comes from INTELLIGENCE only; physical stats are deliberately tiny.
+    _c("light", "Light Yagami", DN, (8, 10, 8, 14, 1, 99), "I",
+       ["Death Note", "Strategic Manipulation", "Kira"],
+       "A genius who weaponizes the Death Note and out-thinks nearly everyone."),
+    _c("l", "L Lawliet", DN, (22, 12, 10, 24, 1, 98), "I",
+       ["World's Greatest Detective", "Deductive Genius", "Unorthodox Methods"],
+       "The world's greatest detective, unrivalled at deduction."),
+    _c("near", "Near", DN, (6, 8, 6, 10, 1, 96), "I",
+       ["Strategic Deduction", "Puzzle Mastery", "L's Successor"],
+       "L's cool-headed successor who outplays opponents from a quiet corner."),
+    _c("mello", "Mello", DN, (30, 20, 18, 30, 1, 88), "I",
+       ["Ruthless Resourcefulness", "Criminal Connections", "Daring Gambler"],
+       "A brilliant, impulsive rival who takes enormous risks."),
+    _c("misora", "Naomi Misora", DN, (30, 22, 18, 26, 1, 86), "I",
+       ["FBI Training", "Sharp Observation", "Cool Under Pressure"],
+       "A former FBI agent whose deductions come perilously close to the truth."),
+    _c("mikami", "Teru Mikami", DN, (10, 10, 8, 10, 1, 76), "I",
+       ["Devoted Kira", "Exceptional Memory", "Meticulous Planner"],
+       "A fanatically disciplined prosecutor with an exceptional memory."),
+    _c("soichiro", "Soichiro Yagami", DN, (24, 20, 18, 18, 1, 76), "I",
+       ["Police Chief", "Unwavering Integrity", "Investigative Experience"],
+       "A principled police chief with decades of investigative experience."),
+    _c("watari", "Watari", DN, (28, 22, 14, 20, 1, 84), "I",
+       ["Gadget Inventor", "L's Handler", "Quiet Resourcefulness"],
+       "L's discreet handler and an inventor of remarkable gadgets."),
+]

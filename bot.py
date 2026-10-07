@@ -1,0 +1,98 @@
+"""ANIME DRAFT — Telegram bot entry point.
+
+    python bot.py            # long polling (default) or webhook, see RUN_MODE
+"""
+from __future__ import annotations
+
+import logging
+import sys
+
+from telegram import BotCommand, Update
+from telegram.ext import (AIORateLimiter, Application, ApplicationBuilder, CallbackQueryHandler,
+                          ChatMemberHandler, CommandHandler)
+
+from config import ConfigError, load_settings
+from database.client import Database
+from database.seed import sync_characters
+from handlers import admin, draft, info, lobby, start, system
+from services import draft_service
+from services.context import AppContext
+from services.recovery import recover_games
+from utils.logging_setup import setup_logging
+
+log = logging.getLogger("anime_draft")
+ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
+COMMANDS = [
+    BotCommand("start", "Create a game (group) / register (DM)"),
+    BotCommand("help", "Show commands"),
+    BotCommand("rules", "How the game works"),
+    BotCommand("team", "Show your drafted team (DM)"),
+    BotCommand("draft", "Resend your current draft prompt (DM)"),
+    BotCommand("table", "League standings"),
+    BotCommand("status", "Current game status"),
+    BotCommand("cancelgame", "Cancel the game (host/admin)"),
+]
+
+
+async def post_init(app: Application) -> None:
+    ctx: AppContext = app.bot_data["ctx"]
+    ctx.bot = app.bot
+    ctx.bot_username = (await app.bot.get_me()).username or ""
+    await ctx.db.exec(lambda c: c.table("games").select("id").limit(1))  # fails fast if schema missing
+    if ctx.settings.auto_seed:
+        await sync_characters(ctx.db)
+    ctx.catalog = await ctx.characters.load_catalog()
+    if len(ctx.catalog) == 0:
+        raise RuntimeError("No characters in the database. Run database/schema.sql, then AUTO_SEED=true "
+                           "or `python -m scripts.seed_characters`.")
+    await app.bot.set_my_commands(COMMANDS)
+    await recover_games(ctx)
+    if ctx.settings.draft_timeout_minutes > 0:
+        ctx.spawn(draft_service.autopick_loop(ctx), name="autopick-loop")
+    log.info("ANIME DRAFT ready as @%s (%d characters)", ctx.bot_username, len(ctx.catalog))
+
+
+def register_handlers(app: Application) -> None:
+    app.add_handler(CommandHandler("start", start.start_command))
+    app.add_handler(CommandHandler("help", start.help_command))
+    app.add_handler(CommandHandler("rules", start.rules_command))
+    app.add_handler(CommandHandler("team", info.team_command))
+    app.add_handler(CommandHandler("table", info.table_command))
+    app.add_handler(CommandHandler("status", info.status_command))
+    app.add_handler(CommandHandler("draft", draft.draft_command))
+    app.add_handler(CommandHandler("cancelgame", lobby.cancelgame_command))
+    app.add_handler(CommandHandler("setimage", admin.setimage_command))
+    app.add_handler(CallbackQueryHandler(lobby.lobby_callback, pattern=r"^lb:"))
+    app.add_handler(CallbackQueryHandler(draft.draft_callback, pattern=r"^dp:"))
+    app.add_handler(ChatMemberHandler(system.on_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
+    app.add_handler(CallbackQueryHandler(system.stale_callback))  # anything else = stale button
+    app.add_error_handler(system.error_handler)
+
+
+def main() -> None:
+    try:
+        settings = load_settings()
+    except ConfigError as exc:
+        print(f"Configuration error: {exc}", file=sys.stderr)
+        sys.exit(2)
+    setup_logging(settings.log_level, settings.secrets)
+
+    ctx = AppContext.create(settings, Database(settings.supabase_url, settings.supabase_key))
+    app = (ApplicationBuilder().token(settings.telegram_token)
+           .rate_limiter(AIORateLimiter(max_retries=3))
+           .concurrent_updates(True)   # simultaneous button presses are handled in parallel
+           .post_init(post_init).build())
+    app.bot_data["ctx"] = ctx
+    register_handlers(app)
+
+    if settings.run_mode == "webhook":
+        base = settings.webhook_url.rstrip("/")
+        app.run_webhook(listen=settings.webhook_listen, port=settings.webhook_port,
+                        url_path=settings.webhook_path, webhook_url=f"{base}/{settings.webhook_path}",
+                        secret_token=settings.webhook_secret or None, allowed_updates=ALLOWED_UPDATES)
+    else:
+        app.run_polling(allowed_updates=ALLOWED_UPDATES, drop_pending_updates=False)
+
+
+if __name__ == "__main__":
+    main()
