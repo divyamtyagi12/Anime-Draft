@@ -49,7 +49,7 @@ def help_text() -> str:
 def rules_text() -> str:
     return (
         "📜 <b>ANIME DRAFT — Rules</b>\n\n"
-        "<b>Franchises:</b> Re:ZERO · Black Clover · Death Note\n\n"
+        "<b>Franchises:</b> Re:ZERO · Black Clover · Death Note · Ben 10\n\n"
         "<b>Draft</b> — in your DM you build a team of six, one per category: "
         "⚔️ Attack · 🛡️ Defense · 🏰 Tanking · ⚡ Speed · 💚 Healing · 🧠 Intelligence. "
         "Each category offers 5 random eligible characters. A character can't fill two of your slots.\n\n"

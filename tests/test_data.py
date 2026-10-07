@@ -8,7 +8,7 @@ from tests.helpers import build_catalog
 def test_unique_ids_and_series():
     ids = [c["id"] for c in CHARACTERS]
     assert len(ids) == len(set(ids))
-    assert {c["series"] for c in CHARACTERS} == {"Re:ZERO", "Black Clover", "Death Note"}
+    assert {c["series"] for c in CHARACTERS} == {"Re:ZERO", "Black Clover", "Death Note", "Ben 10"}
 
 
 def test_stat_ranges():
@@ -50,3 +50,18 @@ def test_spec_examples():
                 "magna", "zenon", "dante", "vanica", "lucius"]
     for r in required:
         assert r in by, r
+
+
+def test_ben10_characters_and_aliens():
+    b10 = {c["id"]: c for c in CHARACTERS if c["series"] == "Ben 10"}
+    # main cast + villains
+    assert {"ben", "gwen", "kevin", "max", "vilgax", "albedo", "azmuth"} <= set(b10)
+    # Omnitrix aliens
+    aliens = {"heatblast", "four_arms", "xlr8", "diamondhead", "upgrade", "grey_matter",
+              "cannonbolt", "humungousaur", "ghostfreak", "swampfire", "way_big", "alien_x"}
+    assert aliens <= set(b10)
+    # archetypes behave as expected
+    assert b10["xlr8"]["categories"] == ["SPEED"]
+    assert b10["grey_matter"]["categories"] == ["INTELLIGENCE"]
+    assert "HEALING" in b10["swampfire"]["categories"] and "HEALING" in b10["gwen"]["categories"]
+    assert set(b10["diamondhead"]["categories"]) == {"DEFENSE", "TANKING"}

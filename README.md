@@ -1,7 +1,7 @@
 # 🎴 ANIME DRAFT — Telegram multiplayer draft-tournament bot
 
 Lobby in a **group**, drafting and battles in each player's **DM**.
-Franchises: **Re:ZERO · Black Clover · Death Note** (56 characters, 6 categories).
+Franchises: **Re:ZERO · Black Clover · Death Note · Ben 10** (81 characters, 6 categories). Ben 10 includes the main cast, villains and Omnitrix aliens as draftable cards.
 
 Python 3.12 · python-telegram-bot (async) · Supabase/PostgreSQL · long polling (webhook-ready).
 
