@@ -630,7 +630,7 @@ create or replace function group_leaderboard(
         'matches_played', r.matches_played, 'win_rate', r.win_rate) order by r.rn)
       from ranked r join users u on u.id = r.user_id
      where r.rn > p_offset and r.rn <= p_offset + p_limit), '[]'::jsonb),
-    'me',       (select to_jsonb(r) from ranked r where r.user_id = p_user_id),
+    'me',       (select to_jsonb(r) || jsonb_build_object('rank', r.rnk) from ranked r where r.user_id = p_user_id),
     'me_stats', (select to_jsonb(k) from keyed k  where k.user_id = p_user_id)
   );
 $$;

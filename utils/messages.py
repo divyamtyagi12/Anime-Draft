@@ -258,11 +258,16 @@ def global_leaderboard_text(data: Mapping[str, Any], page: int, page_size: int) 
     if not rows:
         lines.append("No rated players yet — finish a tournament to get on the board!")
     for r in rows:
-        lines.append(f"{rank_badge(int(r['rank']) - 1)} {esc(r['name'])} — {r['rating']} 🏆")
+        rk = r.get("rank") if r.get("rank") is not None else r.get("rnk", 1)
+        name = r.get("name") or "Player"
+        rating = r.get("rating", 1000)
+        lines.append(f"{rank_badge(int(rk) - 1 if str(rk).isdigit() else 99)} {esc(name)} — {rating} 🏆")
     me = data.get("me")
     lines.append("")
     if me:
-        lines += [f"<b>Your Global Rank:</b> #{me['rank']}", f"<b>Your Rating:</b> {me['rating']} 🏆"]
+        rk = me.get("rank") if me.get("rank") is not None else me.get("rnk")
+        rating = me.get("rating", 1000)
+        lines += [f"<b>Your Global Rank:</b> #{rk}", f"<b>Your Rating:</b> {rating} 🏆"]
     else:
         lines.append("<i>You're unranked — finish a tournament to start at 1000 🏆</i>")
     return "\n".join(lines)
@@ -280,28 +285,31 @@ def group_leaderboard_text(data: Mapping[str, Any], criteria: str, page: int, pa
     if not rows:
         lines.append("Nobody qualifies yet." if criteria == "winrate" else "No finished tournaments here yet.")
     for r in rows:
+        rk = r.get("rank") if r.get("rank") is not None else r.get("rnk", 1)
+        name = r.get("name") or "Player"
         if criteria == "wins":
-            value = _plural(r["matches_won"], "Win")
+            value = _plural(r.get("matches_won", 0), "Win")
         elif criteria == "winrate":
-            value = f"{float(r['win_rate']):g}% ({r['matches_won']}/{r['matches_played']})"
+            value = f"{float(r.get('win_rate', 0)):g}% ({r.get('matches_won', 0)}/{r.get('matches_played', 0)})"
         else:
-            value = _plural(r["championships_won"], "Championship")
-        lines.append(f"{rank_badge(int(r['rank']) - 1)} {esc(r['name'])} — {value}")
+            value = _plural(r.get("championships_won", 0), "Championship")
+        lines.append(f"{rank_badge(int(rk) - 1 if str(rk).isdigit() else 99)} {esc(name)} — {value}")
     if criteria == "winrate":
         lines += ["", f"<i>League win rate · minimum {min_matches} matches</i>"]
     me, st = data.get("me"), data.get("me_stats")
     lines.append("")
     if me:
-        lines.append(f"<b>Your Group Rank:</b> #{me['rank']}")
+        rk = me.get("rank") if me.get("rank") is not None else me.get("rnk")
+        lines.append(f"<b>Your Group Rank:</b> #{rk}")
     elif st and criteria == "winrate":
-        lines.append(f"<i>Unranked here — play {min_matches}+ league matches ({st['matches_played']} so far)</i>")
+        lines.append(f"<i>Unranked here — play {min_matches}+ league matches ({st.get('matches_played', 0)} so far)</i>")
     else:
         lines.append("<i>You haven't played a finished tournament in this group.</i>")
     if st:
         lines.append(
-            f"📊 {_plural(st['tournaments_played'], 'tournament')} · 🏆 {st['championships_won']} · "
-            f"🥈 {st['runner_up_finishes']} · W-D-L {st['matches_won']}-{st['matches_drawn']}-{st['matches_lost']} · "
-            f"clashes {st['clashes_won']}-{st['clashes_lost']} · {float(st['win_rate']):g}% wins")
+            f"📊 {_plural(st.get('tournaments_played', 0), 'tournament')} · 🏆 {st.get('championships_won', 0)} · "
+            f"🥈 {st.get('runner_up_finishes', 0)} · W-D-L {st.get('matches_won', 0)}-{st.get('matches_drawn', 0)}-{st.get('matches_lost', 0)} · "
+            f"clashes {st.get('clashes_won', 0)}-{st.get('clashes_lost', 0)} · {float(st.get('win_rate', 0)):g}% wins")
     return "\n".join(lines)
 
 
