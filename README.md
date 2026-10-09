@@ -122,7 +122,7 @@ Everyone secretly picks 1–100 in a private chat. **Target = Average × 0.8**; 
 |---|---|
 | Closest number (ties share it) | no damage |
 | Other valid submissions | −1 HP |
-| Exact target match (mathematically exact, not rounded) | +2 HP, max 10 |
+| Exact target match (mathematically exact, not rounded) | +2 HP, max 8 |
 | No submission | −2 HP, excluded from the average |
 | HP reaches 0 | eliminated — last player standing is champion 👑 |
 
@@ -133,8 +133,8 @@ Edge rules: **one submitter** → wins, others −2, no bonus · **nobody submit
 Rating: start 1000, +25 outright win, +10 shared title, −5 completed loss, cancelled = 0.
 
 Flow: `/start` → 🔢 Number Wars → JOIN (3–20 players; must have started the bot in DM) → START (host/admin) or auto-start
-`NW_LOBBY_COUNTDOWN`s after the minimum is reached → each round the bot DMs a selector (−10/−1/+1/+10, presets, 🔒 LOCK) —
-or just type a number and confirm. The group sees one message per round that turns into the results.
+`NW_LOBBY_COUNTDOWN`s after the minimum is reached → each round the bot DMs a prompt — send any number 1–100 directly.
+The group sees one message per round that turns into the results.
 Commands: `/nwrules`, `/nwstats`, `/status`, `/cancelgame`, and a 🔢 board inside `/leaderboard`.
 
 **Anti-cheat / reliability.** Submissions use the Telegram-signed sender (never a payload field); deadlines use the *database*

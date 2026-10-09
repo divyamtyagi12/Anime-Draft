@@ -30,7 +30,7 @@ create table if not exists nw_players (
   match_id         bigint not null references nw_matches(id) on delete cascade,
   user_id          bigint not null references users(id),
   display_name     text   not null,
-  hp               smallint not null default 10 check (hp between 0 and 10),
+  hp               smallint not null default 8 check (hp between 0 and 8),
   alive            boolean  not null default true,
   round_wins       int      not null default 0,
   total_distance   numeric(12,4) not null default 0,
@@ -254,8 +254,8 @@ begin
        where round_id = p_round_id and user_id = x.user_id;
     end if;
     update nw_players set
-      hp               = greatest(0, least(10, hp + x.hp_delta)),
-      alive            = greatest(0, least(10, hp + x.hp_delta)) > 0,
+      hp               = greatest(0, least(8, hp + x.hp_delta)),
+      alive            = greatest(0, least(8, hp + x.hp_delta)) > 0,
       round_wins       = round_wins + (case when x.is_winner then 1 else 0 end),
       total_distance   = total_distance + coalesce(x.distance, 0),
       eliminated_round = case when hp + x.hp_delta <= 0 then r.round_number else eliminated_round end
@@ -341,3 +341,9 @@ grant execute on function nw_close_round(bigint)                            to s
 grant execute on function nw_apply_round(bigint, numeric, jsonb, boolean, bigint[], text) to service_role;
 grant execute on function nw_finish_internal(bigint, bigint[], text)        to service_role;
 grant execute on function nw_claim_announce(bigint)                         to service_role;
+
+-- Migration for existing tables to ensure MAX_HP = 8:
+update nw_players set hp = 8 where hp > 8;
+alter table if exists nw_players alter column hp set default 8;
+alter table if exists nw_players drop constraint if exists nw_players_hp_check;
+alter table if exists nw_players add constraint nw_players_hp_check check (hp between 0 and 8);

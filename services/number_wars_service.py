@@ -15,13 +15,11 @@ from fractions import Fraction
 from telegram import InlineKeyboardButton as Btn, InlineKeyboardMarkup
 
 from game import number_wars as engine
-from game.number_wars import NUMBER_MAX, NUMBER_MIN
 from services.context import AppContext
 from services.telegram_io import check_dm, safe_delete, safe_edit, send_message
 from utils import nw_messages as nm
 
 log = logging.getLogger(__name__)
-START_VALUE = 50
 
 
 # ───────────────────────── keyboards ─────────────────────────
@@ -30,19 +28,6 @@ def lobby_markup(match_id: int) -> InlineKeyboardMarkup:
         [Btn("🔢 JOIN", callback_data=f"nw:j:{match_id}"),
          Btn("🚪 LEAVE", callback_data=f"nw:lv:{match_id}")],
         [Btn("▶️ START", callback_data=f"nw:st:{match_id}")],
-    ])
-
-
-def keypad(round_id: int, value: int) -> InlineKeyboardMarkup:
-    """Stateless selector: every button carries the value it leads to (validated server-side)."""
-    def to(x: int) -> str:
-        return f"nw:s:{round_id}:{max(NUMBER_MIN, min(NUMBER_MAX, x))}"
-    return InlineKeyboardMarkup([
-        [Btn("−10", callback_data=to(value - 10)), Btn("−1", callback_data=to(value - 1)),
-         Btn(f"· {value} ·", callback_data=to(value)),
-         Btn("+1", callback_data=to(value + 1)), Btn("+10", callback_data=to(value + 10))],
-        [Btn(str(x), callback_data=to(x)) for x in (1, 25, 50, 75, 100)],
-        [Btn(f"🔒 LOCK {value}", callback_data=f"nw:l:{round_id}:{value}")],
     ])
 
 

@@ -37,7 +37,7 @@ class FakeNW:
         self.match = {"id": 1, "group_id": -1, "host_id": uids[0], "status": "ACTIVE", "min_players": 3,
                       "max_players": 20, "current_round": 0, "zero_streak": 0, "winner_ids": [],
                       "end_reason": None, "announced": False, "lobby_message_id": None}
-        self.pl = {u: {"user_id": u, "display_name": f"P{u}", "hp": 10, "alive": True, "round_wins": 0,
+        self.pl = {u: {"user_id": u, "display_name": f"P{u}", "hp": engine.MAX_HP, "alive": True, "round_wins": 0,
                        "total_distance": 0.0, "eliminated_round": None} for u in uids}
         self.rounds, self.subs, self.secs = {}, {}, round_seconds
         self.applied = 0
@@ -99,7 +99,7 @@ class FakeNW:
             p = self.pl[x.user_id]
             if not p["alive"]:
                 continue
-            p["hp"] = max(0, min(10, p["hp"] + x.hp_delta))
+            p["hp"] = max(0, min(engine.MAX_HP, p["hp"] + x.hp_delta))
             p["round_wins"] += int(x.is_winner)
             p["total_distance"] += float(x.distance or 0)
             if p["hp"] <= 0:
@@ -190,14 +190,14 @@ def test_full_match_with_a_player_who_always_misses():
     asyncio.run(play(ctx, lambda u, n: None if u == 4 else rng.randint(1, 100)))
     m = ctx.nw.match
     assert m["status"] == "FINISHED" and m["announced"] and len(m["winner_ids"]) >= 1
-    assert 4 not in m["winner_ids"]                                   # −2 HP every round → out in 5 rounds
-    assert ctx.nw.pl[4]["alive"] is False and ctx.nw.pl[4]["eliminated_round"] == 5
+    assert 4 not in m["winner_ids"]                                   # −2 HP every round → out in 4 rounds
+    assert ctx.nw.pl[4]["alive"] is False and ctx.nw.pl[4]["eliminated_round"] == 4
     texts = [t for _c, t, _i in ctx.bot.sent] + [t for _c, _i, t in ctx.bot.edits]
     assert any("NUMBER WARS — FINAL" in t for t in texts)             # champion announced exactly once
     assert sum("NUMBER WARS — FINAL" in t for t in texts) == 1
     assert any("ROUND 1 — RESULTS" in t for t in texts)               # banner was edited into results
     assert any(c == 4 and "eliminated" in t for c, t, _i in ctx.bot.sent)   # elimination DM
-    assert all(0 <= p["hp"] <= 10 for p in ctx.nw.pl.values())
+    assert all(0 <= p["hp"] <= engine.MAX_HP for p in ctx.nw.pl.values())
 
 
 def test_round_closes_early_when_everyone_locks_in():
@@ -222,7 +222,7 @@ def test_everyone_picking_same_number_triggers_sudden_death_then_round_cap():
 def test_deadline_closes_round_when_someone_never_answers():
     ctx = FakeCtx([1, 2, 3], round_seconds=0.3, max_rounds=1)
     asyncio.run(play(ctx, lambda u, n: None if u == 3 else 50))
-    assert ctx.nw.pl[3]["hp"] == 8 and ctx.nw.pl[1]["hp"] == 10       # missed → −2; tied winners → 0
+    assert ctx.nw.pl[3]["hp"] == 6 and ctx.nw.pl[1]["hp"] == 8       # missed → −2; tied winners → 0
     assert ctx.nw.match["status"] == "FINISHED"
 
 

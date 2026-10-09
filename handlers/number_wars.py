@@ -2,7 +2,6 @@
 
 callback_data (all < 64 bytes, stateless):
     nw:j:<match>  join        nw:lv:<match>  leave       nw:st:<match>  start (host/admin)
-    nw:s:<round>:<n>  move the DM selector to n          nw:l:<round>:<n>  LOCK n (final)
     nw:x              dismiss a confirmation prompt
     nwl:g | nwl:c | nwl:me    leaderboard (global / this group) and personal stats
 """
@@ -50,8 +49,6 @@ async def nw_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         action = parts[1]
         if action in ("j", "lv", "st"):
             return await _lobby_action(ctx, context, q, action, int(parts[2]))
-        if action in ("s", "l"):
-            return await _selector_action(ctx, q, action, int(parts[2]), int(parts[3]))
         if action == "x":
             await safe_answer(q)
             try:
@@ -110,46 +107,6 @@ async def _lobby_action(ctx: AppContext, context, q, action: str, match_id: int)
         await safe_answer(q, "🔥 Starting…")
         await svc.start_match(ctx, match_id)
 
-
-async def _selector_action(ctx: AppContext, q, action: str, round_id: int, value: int) -> None:
-    chat, user = q.message.chat if q.message else None, q.from_user
-    if not chat or chat.type != ChatType.PRIVATE:
-        return await safe_answer(q, "🤫 Pick your number in my private chat.", True)
-    if not NUMBER_MIN <= value <= NUMBER_MAX:
-        return await safe_answer(q, f"⚠️ Pick a whole number from {NUMBER_MIN} to {NUMBER_MAX}.", True)
-
-    if action == "s":                                       # move the selector — no database work
-        if _throttled(ctx, user.id, "s", 0.25):
-            return await safe_answer(q)
-        await safe_answer(q)
-        base = (q.message.text_html or "").rsplit(nm.TAIL_MARK, 1)[0]
-        await safe_edit(ctx, chat.id, q.message.message_id, base + nm.selected_tail(value),
-                        reply_markup=svc.keypad(round_id, value))
-        return
-
-    if _throttled(ctx, user.id, "l", 0.5):
-        return await safe_answer(q)
-    # The submitting identity is the Telegram-signed sender of this callback — never a payload field.
-    res = await ctx.nw.submit(round_id, user.id, value)
-    status = res.get("status")
-    if status == "OK":
-        await safe_answer(q, f"🔒 Locked: {value}")
-        text = nm.locked_text(value)
-        await safe_edit(ctx, chat.id, q.message.message_id, text)
-        prompt_id = ctx.nw_prompts.get(round_id, {}).get(user.id)
-        if prompt_id and prompt_id != q.message.message_id:  # locked via typed number → also close the keypad
-            await safe_edit(ctx, chat.id, prompt_id, text)
-        if res.get("all_in"):
-            ev = ctx.nw_events.get(res.get("match_id"))
-            if ev:
-                ev.set()                                     # everyone is in → resolve now
-    elif status == "DUPLICATE":
-        await safe_answer(q, "🔒 You've already locked a number this round.", True)
-    elif status == "NOT_IN":
-        await safe_answer(q, "❌ You're not an active player in this round.", True)
-    else:
-        await safe_answer(q, "⏰ This round is closed.", True)
-        await safe_edit(ctx, chat.id, q.message.message_id, "⏰ <b>This round is closed.</b>")
 
 
 # ───────────────────────── typed numbers (DM) ─────────────────────────

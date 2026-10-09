@@ -33,7 +33,7 @@ def rules_text(round_seconds: int = 30, max_rounds: int = 30) -> str:
         f"❤️ Everyone starts with <b>{MAX_HP} HP</b>.\n"
         "• Closest number (ties share it): <b>no damage</b>\n"
         "• Everyone else who submitted: <b>−1 HP</b>\n"
-        "• Exact target match: <b>+2 HP</b> (max 10)\n"
+        f"• Exact target match: <b>+2 HP</b> (max {MAX_HP})\n"
         "• No submission: <b>−2 HP</b> (and you're left out of the average)\n"
         "• 0 HP = eliminated. Last one standing is champion! 👑\n\n"
         "<b>Special cases</b>\n"
@@ -91,27 +91,17 @@ def round_start_group(rnd: Mapping[str, Any], alive: int, seconds: int) -> str:
     return (f"🔢 {head}<b>ROUND {rnd['round_number']}</b>\n\n"
             f"👥 {alive} players alive · ⏱ {seconds} seconds\n"
             f"🎯 Target = Average {mult_label(rnd['multiplier'])}\n\n"
-            "📩 Check your DMs and lock in a number!")
+            "📩 Check your DMs and send a number from 1 to 100!")
 
 
-def dm_prompt(rnd: Mapping[str, Any], hp: int, alive: int, seconds: int,
-              value: int | None = None) -> str:
+def dm_prompt(rnd: Mapping[str, Any], hp: int, alive: int, seconds: int) -> str:
     head = "⚡ SUDDEN DEATH — " if rnd.get("sudden_death") else ""
-    tail = selected_tail(value) if value is not None else ""
     return (f"🔢 <b>{head}ROUND {rnd['round_number']} — Choose Your Number</b>\n\n"
             f"❤️ Your HP: <b>{hp}/{MAX_HP}</b>\n"
             f"👥 Remaining players: <b>{alive}</b>\n"
             f"🎯 Target = Average <b>{mult_label(rnd['multiplier'])}</b>\n"
             f"⏱ You have {seconds} seconds\n\n"
-            f"<i>{dm_prompt_hint()}</i>"
-            f"{tail}")
-
-
-TAIL_MARK = "\n\n🎯 Your number:"
-
-
-def selected_tail(value: int) -> str:
-    return f"{TAIL_MARK} <b>{value}</b>"
+            f"<i>{dm_prompt_hint()}</i>")
 
 
 def locked_text(value: int) -> str:
