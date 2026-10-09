@@ -20,30 +20,46 @@ def rank_badge(i: int) -> str:
 
 
 # ───────────────────────── static texts ─────────────────────────
+def arena_picker_text(host_name: str) -> str:
+    return (
+        "🎮 <b>GAME ARENA</b>\n\n"
+        f"<b>{esc(host_name)}</b> is starting a game. What do you want to play?\n\n"
+        "⚔️ <b>Anime Draft</b> — draft a team, fight a league + Grand Final (3–8 players)\n"
+        "🔢 <b>Number Wars</b> — guess the secret target, last one standing wins (3–20 players)"
+    )
+
+
 def welcome_dm() -> str:
     return (
-        "🎴 <b>ANIME DRAFT</b>\n\n"
+        "🎮 <b>GAME ARENA</b>\n\n"
         "✅ You're all set — I can DM you now!\n\n"
+        "<b>Two games, one bot</b>\n"
+        "⚔️ <b>Anime Draft</b> — draft five characters, round-robin league → 🔥 Grand Final\n"
+        "🔢 <b>Number Wars</b> — pick a number, get closest to <i>Average × 0.8</i>, survive the eliminations\n\n"
         "<b>How to play</b>\n"
         "1️⃣ Add me to a group and send /start there\n"
-        "2️⃣ Everyone presses ⚔️ JOIN (3–8 players)\n"
-        "3️⃣ Draft five characters here in DM\n"
-        "4️⃣ Round-robin league → 🔥 Grand Final\n\n"
-        "Games must be created in a <b>group</b>. See /rules and /help."
+        "2️⃣ Choose <b>Anime Draft</b> or <b>Number Wars</b>\n"
+        "3️⃣ Everyone presses JOIN — then play right here in DM\n\n"
+        "Games must be created in a <b>group</b>. See /rules, /nwrules and /help."
     )
 
 
 def help_text() -> str:
     return (
         "🎴 <b>ANIME DRAFT — Commands</b>\n\n"
-        "/start — create a lobby (group) or register (DM)\n"
+        "/start — pick a game & create a lobby (group) or register (DM)\n"
         "/rules — how the game works\n"
         "/team — your drafted team (DM)\n"
         "/draft — resend your current draft prompt (DM)\n"
         "/table — league standings (group)\n"
         "/leaderboard — global & group rankings\n"
         "/status — current game status\n"
-        "/cancelgame — cancel the game (host/admin)\n"
+        "/cancelgame — cancel the game (host/admin)\n\n"
+        "🔢 <b>NUMBER WARS</b>\n"
+        "/nwrules — how Number Wars works\n"
+        "/nwstats — your Number Wars rating & record\n"
+        "In a round, tap the buttons in DM or just send a number from 0 to 100.\n"
+        "/leaderboard also has a 🔢 Number Wars board.\n"
     )
 
 
@@ -58,7 +74,8 @@ def rules_text() -> str:
         "(category vs same category). Ratings are fixed; a small ±5% luck factor only matters in close fights.\n"
         "Win (3+ clashes) = 3 pts · Loss = 0.\n"
         "Ranking: points → clash difference → clashes won → head-to-head → random.\n\n"
-        "<b>Grand Final</b> — top two meet. First to 3 clashes wins."
+        "<b>Grand Final</b> — top two meet. First to 3 clashes wins.\n\n"
+        "🔢 Looking for Number Wars? See /nwrules."
     )
 
 

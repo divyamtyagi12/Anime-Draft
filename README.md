@@ -1,4 +1,8 @@
-# 🎴 ANIME DRAFT — Telegram multiplayer draft-tournament bot
+# 🎮 GAME ARENA — ⚔️ Anime Draft + 🔢 Number Wars (Telegram multiplayer bot)
+
+`/start` in a group shows a picker: **⚔️ Anime Draft** or **🔢 Number Wars**. Only the person who sent `/start` (or a group admin) chooses. One game per group at a time — enforced in the database for both games.
+
+## 🎴 ANIME DRAFT
 
 Lobby in a **group**, drafting and battles in each player's **DM**.
 Franchises: **Re:ZERO · Black Clover · Death Note · Ben 10** (81 characters, 5 categories). Ben 10 includes the main cast, villains and Omnitrix aliens as draftable cards.
@@ -6,7 +10,7 @@ Franchises: **Re:ZERO · Black Clover · Death Note · Ben 10** (81 characters, 
 Python 3.12 · python-telegram-bot (async) · Supabase/PostgreSQL · long polling (webhook-ready).
 
 ## Game flow
-1. `/start` in a group → lobby (⚔️ JOIN / 🚪 LEAVE / 🔥 FORCE START). 3–8 players. Joining requires having pressed Start in the bot's DM.
+1. `/start` in a group → pick **Anime Draft** → lobby (⚔️ JOIN / 🚪 LEAVE / 🔥 FORCE START). 3–8 players. Joining requires having pressed Start in the bot's DM.
 2. FORCE START (host/admin) → every player is DM-checked, the lobby locks, and each player drafts 5 characters (5 random offers per category). Progress (✅/⏳, never characters) is shown in the group.
 3. Round-robin league: each match = 5 clashes, fought privately with live-edited DM cards and a scorecard to both players. The group only gets the standings table (edited in place after each round).
 4. Top two → Grand Final (3+ clashes wins; no ties possible with 5 clashes). Champion announced in the group.
@@ -31,6 +35,7 @@ tests/            unit tests for engine/data/messages
 ## 1. Supabase setup
 1. Create a project at supabase.com.
 2. **SQL Editor → paste `database/schema.sql` → Run.** (Re-runnable.)
+   Then **paste `database/number_wars.sql` → Run** (Re-runnable; must come second — the bot refuses to start without it).
 3. Characters are upserted automatically on bot start (`AUTO_SEED=true`). Alternatives: run `database/seed_characters.sql` in the SQL Editor, or `python -m scripts.seed_characters`.
 4. **Project Settings → API**: copy the *Project URL* and the **`service_role` key**.
    - `SUPABASE_KEY` must be the **service_role** key. RLS is enabled with no policies, so the anon key cannot work (by design — it also can't read your data).
@@ -107,3 +112,36 @@ Everything lives in Supabase, so it survives restarts. **Upgrade:** re-run `data
 * **Old games:** finished before the upgrade → not counted. To count them, run
   `update games set leaderboard_processed = false where status = 'COMPLETED';` and restart
   (they are applied oldest-first).
+
+
+## 🔢 NUMBER WARS
+
+Everyone secretly picks 0–100 in a private chat. **Target = Average × 0.8**; the closest number wins the round.
+
+| Event | Effect |
+|---|---|
+| Closest number (ties share it) | no damage |
+| Other valid submissions | −1 HP |
+| Exact target match (mathematically exact, not rounded) | +2 HP, max 10 |
+| No submission | −2 HP, excluded from the average |
+| HP reaches 0 | eliminated — last player standing is champion 👑 |
+
+Edge rules: **one submitter** → wins, others −2, no bonus · **nobody submits** → no target, all −2 ·
+**3 zero-damage rounds in a row** → ⚡ sudden death with a random multiplier (0.5/0.8/1.2/1.5) stored *before* the round ·
+**30-round cap** → rank by HP → round wins → lowest total distance (ties = joint champions) ·
+**everyone knocked out together** → best *pre-round* HP → round wins → distance.
+Rating: start 1000, +25 outright win, +10 shared title, −5 completed loss, cancelled = 0.
+
+Flow: `/start` → 🔢 Number Wars → JOIN (3–20 players; must have started the bot in DM) → START (host/admin) or auto-start
+`NW_LOBBY_COUNTDOWN`s after the minimum is reached → each round the bot DMs a selector (−10/−1/+1/+10, presets, 🔒 LOCK) —
+or just type a number and confirm. The group sees one message per round that turns into the results.
+Commands: `/nwrules`, `/nwstats`, `/status`, `/cancelgame`, and a 🔢 board inside `/leaderboard`.
+
+**Anti-cheat / reliability.** Submissions use the Telegram-signed sender (never a payload field); deadlines use the *database*
+clock; a submit and a round-close are serialised by a row lock so nothing lands "in between"; each round is applied once by an
+atomic SQL function (HP, wins, elimination, final result and ratings in one transaction); unfinished rounds resume after a restart
+from their persisted deadline. One asyncio task per *match*, not per player. Hidden numbers are never shown before the round ends.
+
+Code map: `game/number_wars.py` (pure rules) · `services/number_wars_service.py` (lobby, round loop, recovery) ·
+`handlers/number_wars.py` + `handlers/arena.py` (Telegram) · `repositories/number_wars.py` · `database/number_wars.sql` ·
+`utils/nw_messages.py`. Tests: `tests/test_number_wars*.py` (rules, end-to-end match flow with fakes, message limits).

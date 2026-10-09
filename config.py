@@ -61,6 +61,13 @@ class Settings:
     auto_seed: bool = True
     owner_ids: frozenset[int] = frozenset()
     log_level: str = "INFO"
+    # ── Number Wars ──
+    nw_min_players: int = 3
+    nw_max_players: int = 20
+    nw_round_seconds: int = 30
+    nw_lobby_countdown: int = 60      # auto-start this many seconds after the minimum is reached (0 = off)
+    nw_max_rounds: int = 30
+    nw_between_rounds: float = 4.0    # pause between a result and the next round
 
     @property
     def secrets(self) -> list[str]:
@@ -88,6 +95,8 @@ def load_settings() -> Settings:
     min_players = _int("MIN_PLAYERS", 3, lo=2, hi=16)
     max_players = _int("MAX_PLAYERS", 8, lo=min_players, hi=16)
 
+    nw_min = _int("NW_MIN_PLAYERS", 3, lo=2, hi=20)
+
     owners: set[int] = set()
     for part in os.getenv("OWNER_IDS", "").split(","):
         part = part.strip()
@@ -114,4 +123,10 @@ def load_settings() -> Settings:
         auto_seed=_bool("AUTO_SEED", True),
         owner_ids=frozenset(owners),
         log_level=os.getenv("LOG_LEVEL", "INFO").strip().upper() or "INFO",
+        nw_min_players=nw_min,
+        nw_max_players=_int("NW_MAX_PLAYERS", 20, lo=nw_min, hi=50),
+        nw_round_seconds=_int("NW_ROUND_SECONDS", 30, lo=10, hi=300),
+        nw_lobby_countdown=_int("NW_LOBBY_COUNTDOWN", 60, lo=0, hi=3600),
+        nw_max_rounds=_int("NW_MAX_ROUNDS", 30, lo=1, hi=200),
+        nw_between_rounds=_float("NW_BETWEEN_ROUNDS", 4.0),
     )

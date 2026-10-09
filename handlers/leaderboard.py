@@ -17,6 +17,7 @@ from telegram.constants import ChatType
 from telegram.ext import ContextTypes
 
 from game.rating import MIN_MATCHES_FOR_WIN_RATE, PAGE_SIZE
+from handlers import arena
 from handlers.common import get_ctx, safe_answer
 from handlers.start import GROUP_TYPES, dm_welcome_markup
 from services import lobby_service
@@ -31,6 +32,7 @@ def menu_markup() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
         [Btn("🌍 GLOBAL LEADERBOARD", callback_data="lbd:g:0")],
         [Btn("👥 GROUP LEADERBOARD", callback_data="lbd:pick")],
+        [Btn("🔢 NUMBER WARS", callback_data="nwl:g")],
         [Btn("🏠 BACK", callback_data="lbd:home")],
     ])
 
@@ -113,15 +115,12 @@ async def _play_again(ctx, q) -> None:
     chat, user = q.message.chat, q.from_user
     if chat.type not in GROUP_TYPES:
         return await safe_answer(q, "🎮 Start new games from a group with /start.", True)
-    if await ctx.games.active_for_group(chat.id):
+    if await arena.active_game_exists(ctx, chat.id):
         return await safe_answer(q, "⚠️ A game is already in progress here. Use /status.", True)
     await ctx.groups.upsert(chat.id, chat.title)
     await ctx.users.upsert(user.id, user.username, user.first_name)
-    game = await ctx.games.create(chat.id, user.id, ctx.settings.min_players, ctx.settings.max_players)
-    if game is None:
-        return await safe_answer(q, "⚠️ A game is already in progress here. Use /status.", True)
-    await safe_answer(q, "🎮 New lobby created!")
-    await lobby_service.refresh_lobby(ctx, game["id"], repost=True)
+    await safe_answer(q)
+    await arena.show_picker(ctx, chat.id, user)
 
 
 async def leaderboard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

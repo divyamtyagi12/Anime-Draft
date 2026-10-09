@@ -8,7 +8,7 @@ from telegram.ext import ContextTypes
 
 from handlers.common import get_ctx, is_admin, safe_answer
 from handlers.start import GROUP_TYPES
-from services import draft_service, lobby_service
+from services import draft_service, lobby_service, number_wars_service as nw_service
 from services.telegram_io import delete_later, send_message
 from utils import messages as msg
 
@@ -89,6 +89,13 @@ async def cancelgame_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await message.reply_html("ℹ️ Use /cancelgame in the group where the game is running.")
     game = await ctx.games.active_for_group(chat.id)
     if not game:
+        nw_match = await ctx.nw.active_for_group(chat.id)
+        if nw_match:
+            if user.id != nw_match["host_id"] and not await is_admin(context.bot, chat.id, user.id):
+                return await message.reply_html("❌ Only the host/admin can cancel the game.")
+            if not await nw_service.cancel_match(ctx, nw_match, user.first_name or "the host"):
+                await message.reply_html("⚠️ That match already ended.")
+            return
         return await message.reply_html("There is no active game here.")
     if user.id != game["host_id"] and not await is_admin(context.bot, chat.id, user.id):
         return await message.reply_html("❌ Only the host/admin can cancel the game.")

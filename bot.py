@@ -1,4 +1,4 @@
-"""ANIME DRAFT — Telegram bot entry point.
+"""GAME ARENA (ANIME DRAFT + NUMBER WARS) — Telegram bot entry point.
 
     python bot.py            # long polling (default) or webhook, see RUN_MODE
 """
@@ -9,12 +9,12 @@ import sys
 
 from telegram import BotCommand, Update
 from telegram.ext import (AIORateLimiter, Application, ApplicationBuilder, CallbackQueryHandler,
-                          ChatMemberHandler, CommandHandler)
+                          ChatMemberHandler, CommandHandler, MessageHandler, filters)
 
 from config import ConfigError, load_settings
 from database.client import Database
 from database.seed import sync_characters
-from handlers import admin, draft, info, leaderboard, lobby, start, system
+from handlers import admin, arena, draft, info, leaderboard, lobby, number_wars, start, system
 from services import draft_service
 from services.context import AppContext
 from services.recovery import recover_games
@@ -23,7 +23,7 @@ from utils.logging_setup import setup_logging
 log = logging.getLogger("anime_draft")
 ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
 COMMANDS = [
-    BotCommand("start", "Create a game (group) / register (DM)"),
+    BotCommand("start", "Pick a game & create a lobby (group) / register (DM)"),
     BotCommand("help", "Show commands"),
     BotCommand("rules", "How the game works"),
     BotCommand("team", "Show your drafted team (DM)"),
@@ -31,6 +31,8 @@ COMMANDS = [
     BotCommand("table", "League standings"),
     BotCommand("status", "Current game status"),
     BotCommand("leaderboard", "Global & group rankings"),
+    BotCommand("nwrules", "Number Wars: how it works"),
+    BotCommand("nwstats", "Number Wars: your rating & record"),
     BotCommand("cancelgame", "Cancel the game (host/admin)"),
 ]
 
@@ -40,6 +42,7 @@ async def post_init(app: Application) -> None:
     ctx.bot = app.bot
     ctx.bot_username = (await app.bot.get_me()).username or ""
     await ctx.db.exec(lambda c: c.table("games").select("id").limit(1))  # fails fast if schema missing
+    await ctx.db.exec(lambda c: c.table("nw_matches").select("id").limit(1))  # …or if number_wars.sql wasn't run
     if ctx.settings.auto_seed:
         await sync_characters(ctx.db)
     ctx.catalog = await ctx.characters.load_catalog()
@@ -64,6 +67,13 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("cancelgame", lobby.cancelgame_command))
     app.add_handler(CommandHandler("leaderboard", leaderboard.leaderboard_command))
     app.add_handler(CommandHandler("setimage", admin.setimage_command))
+    app.add_handler(CommandHandler("nwrules", number_wars.nwrules_command))
+    app.add_handler(CommandHandler("nwstats", number_wars.nwstats_command))
+    app.add_handler(CallbackQueryHandler(arena.arena_callback, pattern=r"^ga:"))
+    app.add_handler(CallbackQueryHandler(number_wars.nw_callback, pattern=r"^nw:"))
+    app.add_handler(CallbackQueryHandler(number_wars.nw_leaderboard_callback, pattern=r"^nwl:"))
+    app.add_handler(MessageHandler(filters.ChatType.PRIVATE & filters.TEXT & ~filters.COMMAND,
+                                   number_wars.number_text))   # typed numbers during a round
     app.add_handler(CallbackQueryHandler(lobby.lobby_callback, pattern=r"^lb:"))
     app.add_handler(CallbackQueryHandler(draft.draft_callback, pattern=r"^dp:"))
     app.add_handler(CallbackQueryHandler(leaderboard.leaderboard_callback, pattern=r"^lbd:"))

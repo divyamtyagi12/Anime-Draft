@@ -18,6 +18,7 @@ from repositories.games import GameRepo
 from repositories.groups import GroupRepo
 from repositories.leaderboard import LeaderboardRepo
 from repositories.matches import MatchRepo
+from repositories.number_wars import NumberWarsRepo
 from repositories.players import PlayerRepo
 from repositories.standings import StandingsRepo
 from repositories.users import UserRepo
@@ -38,6 +39,7 @@ class AppContext:
     standings: StandingsRepo
     characters: CharacterRepo
     leaderboard: LeaderboardRepo
+    nw: NumberWarsRepo
     catalog: CharacterCatalog = field(default_factory=CharacterCatalog)
     rng: random.Random = field(default_factory=random.SystemRandom)
     bot: Bot | None = None
@@ -46,11 +48,19 @@ class AppContext:
     _locks: dict[Hashable, asyncio.Lock] = field(default_factory=dict)
     _tasks: set[asyncio.Task] = field(default_factory=set)
     _teams: dict[int, dict] = field(default_factory=dict)
+    # ── Number Wars (in-memory only; everything authoritative is in the database) ──
+    running_nw: set[int] = field(default_factory=set)                 # match ids with a live round loop
+    nw_countdowns: set[int] = field(default_factory=set)              # lobbies with an auto-start timer
+    nw_events: dict[int, asyncio.Event] = field(default_factory=dict)  # match_id → "wake the round loop"
+    nw_prompts: dict[int, dict[int, int]] = field(default_factory=dict)  # round_id → {user_id: dm message_id}
+    nw_round_msgs: dict[int, int] = field(default_factory=dict)       # round_id → group message_id
+    nw_throttle: dict[tuple[int, str], float] = field(default_factory=dict)
 
     @classmethod
     def create(cls, settings: Settings, db: Database) -> "AppContext":
         return cls(settings, db, UserRepo(db), GroupRepo(db), GameRepo(db), PlayerRepo(db),
-                   DraftRepo(db), MatchRepo(db), StandingsRepo(db), CharacterRepo(db), LeaderboardRepo(db))
+                   DraftRepo(db), MatchRepo(db), StandingsRepo(db), CharacterRepo(db), LeaderboardRepo(db),
+                   NumberWarsRepo(db))
 
     def lock(self, key: Hashable) -> asyncio.Lock:
         return self._locks.setdefault(key, asyncio.Lock())

@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 
 from handlers.common import get_ctx
 from handlers.start import GROUP_TYPES
-from services import table_service
+from services import number_wars_service as nw_service, table_service
 from utils import messages as msg
 
 
@@ -53,6 +53,13 @@ async def table_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ctx = get_ctx(context)
     message = update.effective_message
+    chat, user = update.effective_chat, update.effective_user
+    if chat.type in GROUP_TYPES:
+        nw_match = None if await ctx.games.active_for_group(chat.id) else await ctx.nw.active_for_group(chat.id)
+    else:
+        nw_match = await ctx.nw.active_for_user(user.id)
+    if nw_match:
+        return await message.reply_html(await nw_service.status_text(ctx, nw_match))
     game = await _game_for(ctx, update)
     if not game:
         return await message.reply_html("No game found. Send /start in a group to create one.")

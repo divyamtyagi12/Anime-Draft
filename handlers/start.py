@@ -4,8 +4,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatType, ParseMode
 from telegram.ext import ContextTypes
 
+from handlers import arena
 from handlers.common import get_ctx
-from services import lobby_service
+from services import lobby_service, number_wars_service as nw_service
 from services.telegram_io import send_message
 from utils import messages as msg
 
@@ -43,11 +44,15 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await message.reply_html("⚠️ A game is already in progress here. Use /status to see it.")
         return
 
-    game = await ctx.games.create(chat.id, user.id, ctx.settings.min_players, ctx.settings.max_players)
-    if game is None:  # lost a race with another /start
-        await message.reply_html("⚠️ A game is already in progress here. Use /status to see it.")
+    nw_match = await ctx.nw.active_for_group(chat.id)
+    if nw_match:
+        if nw_match["status"] == "LOBBY":
+            await nw_service.refresh_lobby(ctx, nw_match["id"], repost=True)
+        else:
+            await message.reply_html("⚠️ A Number Wars match is in progress here. Use /status to see it.")
         return
-    await lobby_service.refresh_lobby(ctx, game["id"], repost=True)
+
+    await arena.show_picker(ctx, chat.id, user)   # ⚔️ Anime Draft  |  🔢 Number Wars
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

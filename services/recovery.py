@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import logging
 
-from services import draft_service, final_service, leaderboard_service, league_service
+from services import (draft_service, final_service, leaderboard_service, league_service,
+                      number_wars_service)
 from services.context import AppContext
 
 log = logging.getLogger(__name__)
@@ -21,4 +22,5 @@ async def recover_games(ctx: AppContext) -> None:
     for g in pending_announce:
         ctx.spawn(final_service.announce_final(ctx, g["id"]), name=f"announce-{g['id']}")
     ctx.spawn(leaderboard_service.process_pending(ctx), name="leaderboard-backfill")  # sequential, oldest first
+    await number_wars_service.recover(ctx)
     log.info("Recovery: %d drafting, %d running, %d to announce", len(drafting), len(running), len(pending_announce))
