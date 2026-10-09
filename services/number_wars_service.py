@@ -15,6 +15,7 @@ from fractions import Fraction
 from telegram import InlineKeyboardButton as Btn, InlineKeyboardMarkup
 
 from game import number_wars as engine
+from game.number_wars import NUMBER_MAX, NUMBER_MIN
 from services.context import AppContext
 from services.telegram_io import check_dm, safe_delete, safe_edit, send_message
 from utils import nw_messages as nm
@@ -35,12 +36,12 @@ def lobby_markup(match_id: int) -> InlineKeyboardMarkup:
 def keypad(round_id: int, value: int) -> InlineKeyboardMarkup:
     """Stateless selector: every button carries the value it leads to (validated server-side)."""
     def to(x: int) -> str:
-        return f"nw:s:{round_id}:{max(0, min(100, x))}"
+        return f"nw:s:{round_id}:{max(NUMBER_MIN, min(NUMBER_MAX, x))}"
     return InlineKeyboardMarkup([
         [Btn("−10", callback_data=to(value - 10)), Btn("−1", callback_data=to(value - 1)),
          Btn(f"· {value} ·", callback_data=to(value)),
          Btn("+1", callback_data=to(value + 1)), Btn("+10", callback_data=to(value + 10))],
-        [Btn(str(x), callback_data=to(x)) for x in (0, 25, 50, 75, 100)],
+        [Btn(str(x), callback_data=to(x)) for x in (1, 25, 50, 75, 100)],
         [Btn(f"🔒 LOCK {value}", callback_data=f"nw:l:{round_id}:{value}")],
     ])
 
@@ -230,8 +231,8 @@ async def _send_prompts(ctx: AppContext, rnd: dict, players: list[dict], total_a
     n_alive = total_alive or len(players)
 
     async def one(p: dict) -> None:
-        text = nm.dm_prompt(rnd, p["hp"], n_alive, ctx.settings.nw_round_seconds, START_VALUE)
-        sent = await send_message(ctx, p["user_id"], text, reply_markup=keypad(rnd["id"], START_VALUE))
+        text = nm.dm_prompt(rnd, p["hp"], n_alive, ctx.settings.nw_round_seconds)
+        sent = await send_message(ctx, p["user_id"], text)
         if sent:
             prompts[p["user_id"]] = sent.message_id
 

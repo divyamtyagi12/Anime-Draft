@@ -20,24 +20,24 @@ def test_design_doc_example():
 
 
 def test_exact_bonus_and_cap():
-    out = nw.resolve_round({"A": 7, "B": 10}, dict(A=0, B=0))
+    out = nw.resolve_round({"A": 7, "B": 10}, dict(A=50, B=50), F(1, 1))
     r = _by(out)
-    assert out.target == 0 and r["A"].exact and r["A"].hp_after == 9    # 7 + 2
+    assert out.target == 50 and r["A"].exact and r["A"].hp_after == 9    # 7 + 2
     assert r["B"].hp_after == 10                                         # capped
 
 
 def test_exact_means_mathematically_exact_not_rounded():
-    # 1 and 0 → avg 0.5 → target 0.4. Closest is 0 (distance 0.4) — NOT exact even though round(0.4)==0
-    out = nw.resolve_round({"A": 10, "B": 10}, dict(A=0, B=1))
+    # 1 and 2 → avg 1.5 → target 1.2. Closest is 1 (distance 0.2) — NOT exact even though round(1.2)==1
+    out = nw.resolve_round({"A": 10, "B": 10}, dict(A=1, B=2))
     r = _by(out)
-    assert out.target == F(2, 5)
+    assert out.target == F(6, 5)
     assert r["A"].is_winner and not r["A"].exact and r["A"].hp_after == 10
     assert r["B"].hp_after == 9
 
 
 def test_ties_all_avoid_damage():
-    out = nw.resolve_round({"A": 10, "B": 10, "C": 10}, dict(A=0, B=100, C=50))
-    # avg 50 → target 40; distances 40, 60, 10 → C wins alone
+    out = nw.resolve_round({"A": 10, "B": 10, "C": 10}, dict(A=1, B=100, C=50))
+    # avg 151/3 → target 120.8/3; distances ~39.27, ~59.73, ~9.73 → C wins alone
     assert [r.is_winner for r in out.results] == [False, False, True]
     out = nw.resolve_round({"A": 10, "B": 10, "C": 10}, dict(A=20, B=20, C=80))
     # avg 40 → target 32; A and B tie at 12 → both safe
@@ -61,20 +61,20 @@ def test_nobody_submits():
 
 
 def test_single_submitter_wins_no_bonus():
-    out = nw.resolve_round({"A": 5, "B": 10, "C": 10}, dict(A=0))
+    out = nw.resolve_round({"A": 5, "B": 10, "C": 10}, dict(A=50))
     r = _by(out)
-    assert r["A"].is_winner and not r["A"].exact and r["A"].hp_after == 5   # no +2 even on 0
+    assert r["A"].is_winner and not r["A"].exact and r["A"].hp_after == 5   # no +2 bonus
     assert r["B"].hp_after == 8 and r["C"].hp_after == 8
     assert out.target is None
 
 
 def test_out_of_range_and_foreign_submissions_ignored():
-    out = nw.resolve_round({"A": 10, "B": 10}, dict(A=50, B=101, Z=3))
+    out = nw.resolve_round({"A": 10, "B": 10}, dict(A=50, B=0, C=101, Z=3))
     assert out.submitted == 1 and _by(out)["A"].is_winner
 
 
-def test_everyone_picks_zero_is_zero_damage():
-    out = nw.resolve_round({u: 10 for u in "ABC"}, dict(A=0, B=0, C=0))
+def test_everyone_picks_same_number_is_zero_damage():
+    out = nw.resolve_round({u: 10 for u in "ABC"}, dict(A=50, B=50, C=50))
     assert out.zero_damage and all(r.is_winner for r in out.results)
 
 
@@ -89,7 +89,7 @@ def _st(uid, hp, wins=0, dist=0.0, alive=True):
 
 def test_last_standing_wins():
     before = [_st("A", 1), _st("B", 5)]
-    after = nw.apply_outcome(before, nw.resolve_round({"A": 1, "B": 5}, dict(A=50, B=0)))
+    after = nw.apply_outcome(before, nw.resolve_round({"A": 1, "B": 5}, dict(A=50, B=40)))
     assert nw.decide_end(before, after, 4, 30) == (["B"], nw.END_LAST_STANDING)
 
 
@@ -123,7 +123,7 @@ def test_random_matches_always_terminate_and_conserve_invariants():
         for rnd in range(1, 31):
             alive = [s for s in st if s.alive]
             hp = {s.user_id: s.hp for s in alive}
-            nums = {u: rng.randint(0, 100) for u in hp if rng.random() > 0.1}
+            nums = {u: rng.randint(1, 100) for u in hp if rng.random() > 0.1}
             out = nw.resolve_round(hp, nums, rng.choice([F(1, 2), F(4, 5), F(6, 5), F(3, 2)]))
             assert all(0 <= r.hp_after <= nw.MAX_HP for r in out.results)
             assert out.submitted == 0 or any(r.is_winner for r in out.results)

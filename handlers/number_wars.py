@@ -154,8 +154,8 @@ async def _selector_action(ctx: AppContext, q, action: str, round_id: int, value
 
 # ───────────────────────── typed numbers (DM) ─────────────────────────
 async def number_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """A private text that is a whole number during an open round → ask for confirmation.
-    Anything else is ignored so we never interfere with other conversations."""
+    """A private text that is a whole number during an open round.
+    Locks in the player's choice directly."""
     ctx = get_ctx(context)
     message, user = update.effective_message, update.effective_user
     text = (message.text or "").strip()
@@ -169,10 +169,24 @@ async def number_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     n = int(text)
     if not NUMBER_MIN <= n <= NUMBER_MAX:
         return await message.reply_html(f"⚠️ Pick a whole number from <b>{NUMBER_MIN}</b> to <b>{NUMBER_MAX}</b>.")
-    await message.reply_html(
-        f"Lock in <b>{n}</b>? This is final.",
-        reply_markup=InlineKeyboardMarkup([[Btn(f"🔒 LOCK {n}", callback_data=f"nw:l:{round_id}:{n}"),
-                                            Btn("✖️ Cancel", callback_data="nw:x")]]))
+    res = await ctx.nw.submit(round_id, user.id, n)
+    status = res.get("status")
+    if status == "OK":
+        text_locked = nm.locked_text(n)
+        await message.reply_html(text_locked)
+        prompt_id = ctx.nw_prompts.get(round_id, {}).get(user.id)
+        if prompt_id:
+            await safe_edit(ctx, message.chat.id, prompt_id, text_locked)
+        if res.get("all_in"):
+            ev = ctx.nw_events.get(res.get("match_id"))
+            if ev:
+                ev.set()
+    elif status == "DUPLICATE":
+        await message.reply_html("🔒 You've already locked a number this round.")
+    elif status == "NOT_IN":
+        await message.reply_html("❌ You're not an active player in this round.")
+    else:
+        await message.reply_html("⏰ <b>This round is closed.</b>")
 
 
 # ───────────────────────── commands ─────────────────────────

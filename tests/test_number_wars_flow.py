@@ -187,7 +187,7 @@ async def play(ctx, behaviour, timeout=60):
 def test_full_match_with_a_player_who_always_misses():
     ctx = FakeCtx([1, 2, 3, 4])
     rng = random.Random(7)
-    asyncio.run(play(ctx, lambda u, n: None if u == 4 else rng.randint(0, 100)))
+    asyncio.run(play(ctx, lambda u, n: None if u == 4 else rng.randint(1, 100)))
     m = ctx.nw.match
     assert m["status"] == "FINISHED" and m["announced"] and len(m["winner_ids"]) >= 1
     assert 4 not in m["winner_ids"]                                   # −2 HP every round → out in 5 rounds
@@ -203,14 +203,14 @@ def test_full_match_with_a_player_who_always_misses():
 def test_round_closes_early_when_everyone_locks_in():
     ctx = FakeCtx([1, 2, 3], round_seconds=30)                        # a 30 s deadline must NOT be waited out
     t0 = time.monotonic()
-    asyncio.run(play(ctx, lambda u, n: {1: 0, 2: 100, 3: 50}[u] if n <= 2 else 0, timeout=20))
+    asyncio.run(play(ctx, lambda u, n: {1: 1, 2: 100, 3: 50}[u] if n <= 2 else 1, timeout=20))
     assert time.monotonic() - t0 < 10
     assert ctx.nw.match["status"] == "FINISHED"
 
 
-def test_everyone_picking_zero_triggers_sudden_death_then_round_cap():
+def test_everyone_picking_same_number_triggers_sudden_death_then_round_cap():
     ctx = FakeCtx([1, 2, 3], round_seconds=5, max_rounds=8)
-    asyncio.run(play(ctx, lambda u, n: 0))
+    asyncio.run(play(ctx, lambda u, n: 50))
     m = ctx.nw.match
     assert m["status"] == "FINISHED" and m["end_reason"] == engine.END_ROUND_LIMIT and m["current_round"] == 8
     assert sorted(m["winner_ids"]) == [1, 2, 3]                       # nobody ever lost HP → joint champions

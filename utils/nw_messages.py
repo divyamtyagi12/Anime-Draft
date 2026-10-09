@@ -28,7 +28,7 @@ def hp_bar(hp: int) -> str:
 def rules_text(round_seconds: int = 30, max_rounds: int = 30) -> str:
     return (
         "📜 <b>NUMBER WARS — Rules</b>\n\n"
-        f"Everyone secretly picks a number from <b>0 to 100</b> in a private chat with me ({round_seconds}s).\n"
+        f"Everyone secretly picks a number from <b>1 to 100</b> in a private chat with me ({round_seconds}s).\n"
         "Then: <b>Target = Average × 0.8</b>. The closest number to the target wins the round.\n\n"
         f"❤️ Everyone starts with <b>{MAX_HP} HP</b>.\n"
         "• Closest number (ties share it): <b>no damage</b>\n"
@@ -49,7 +49,7 @@ def rules_text(round_seconds: int = 30, max_rounds: int = 30) -> str:
 
 
 def dm_prompt_hint() -> str:
-    return "Tap the buttons — or just send me a number from 0 to 100."
+    return "Send me a number from 1 to 100."
 
 
 # ───────────────────────── lobby ─────────────────────────
@@ -94,15 +94,17 @@ def round_start_group(rnd: Mapping[str, Any], alive: int, seconds: int) -> str:
             "📩 Check your DMs and lock in a number!")
 
 
-def dm_prompt(rnd: Mapping[str, Any], hp: int, alive: int, seconds: int, value: int) -> str:
+def dm_prompt(rnd: Mapping[str, Any], hp: int, alive: int, seconds: int,
+              value: int | None = None) -> str:
     head = "⚡ SUDDEN DEATH — " if rnd.get("sudden_death") else ""
+    tail = selected_tail(value) if value is not None else ""
     return (f"🔢 <b>{head}ROUND {rnd['round_number']} — Choose Your Number</b>\n\n"
             f"❤️ Your HP: <b>{hp}/{MAX_HP}</b>\n"
             f"👥 Remaining players: <b>{alive}</b>\n"
             f"🎯 Target = Average <b>{mult_label(rnd['multiplier'])}</b>\n"
             f"⏱ You have {seconds} seconds\n\n"
             f"<i>{dm_prompt_hint()}</i>"
-            f"{selected_tail(value)}")
+            f"{tail}")
 
 
 TAIL_MARK = "\n\n🎯 Your number:"

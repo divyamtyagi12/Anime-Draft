@@ -58,7 +58,7 @@ def help_text() -> str:
         "🔢 <b>NUMBER WARS</b>\n"
         "/nwrules — how Number Wars works\n"
         "/nwstats — your Number Wars rating & record\n"
-        "In a round, tap the buttons in DM or just send a number from 0 to 100.\n"
+        "In a round, send me a number from 1 to 100 in DM.\n"
         "/leaderboard also has a 🔢 Number Wars board.\n"
     )
 

@@ -116,7 +116,7 @@ Everything lives in Supabase, so it survives restarts. **Upgrade:** re-run `data
 
 ## 🔢 NUMBER WARS
 
-Everyone secretly picks 0–100 in a private chat. **Target = Average × 0.8**; the closest number wins the round.
+Everyone secretly picks 1–100 in a private chat. **Target = Average × 0.8**; the closest number wins the round.
 
 | Event | Effect |
 |---|---|

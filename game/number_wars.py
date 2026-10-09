@@ -10,7 +10,7 @@ from fractions import Fraction
 from typing import Mapping, Sequence
 
 MAX_HP = 10
-NUMBER_MIN, NUMBER_MAX = 0, 100
+NUMBER_MIN, NUMBER_MAX = 1, 100
 LOSE_DAMAGE = 1          # valid submission, not closest
 MISS_DAMAGE = 2          # no submission
 EXACT_BONUS = 2          # exact target match (capped at MAX_HP)
