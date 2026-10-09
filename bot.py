@@ -14,7 +14,7 @@ from telegram.ext import (AIORateLimiter, Application, ApplicationBuilder, Callb
 from config import ConfigError, load_settings
 from database.client import Database
 from database.seed import sync_characters
-from handlers import admin, draft, info, lobby, start, system
+from handlers import admin, draft, info, leaderboard, lobby, start, system
 from services import draft_service
 from services.context import AppContext
 from services.recovery import recover_games
@@ -30,6 +30,7 @@ COMMANDS = [
     BotCommand("draft", "Resend your current draft prompt (DM)"),
     BotCommand("table", "League standings"),
     BotCommand("status", "Current game status"),
+    BotCommand("leaderboard", "Global & group rankings"),
     BotCommand("cancelgame", "Cancel the game (host/admin)"),
 ]
 
@@ -61,9 +62,11 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("status", info.status_command))
     app.add_handler(CommandHandler("draft", draft.draft_command))
     app.add_handler(CommandHandler("cancelgame", lobby.cancelgame_command))
+    app.add_handler(CommandHandler("leaderboard", leaderboard.leaderboard_command))
     app.add_handler(CommandHandler("setimage", admin.setimage_command))
     app.add_handler(CallbackQueryHandler(lobby.lobby_callback, pattern=r"^lb:"))
     app.add_handler(CallbackQueryHandler(draft.draft_callback, pattern=r"^dp:"))
+    app.add_handler(CallbackQueryHandler(leaderboard.leaderboard_callback, pattern=r"^lbd:"))
     app.add_handler(ChatMemberHandler(system.on_my_chat_member, ChatMemberHandler.MY_CHAT_MEMBER))
     app.add_handler(CallbackQueryHandler(system.stale_callback))  # anything else = stale button
     app.add_error_handler(system.error_handler)

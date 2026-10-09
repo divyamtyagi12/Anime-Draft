@@ -16,6 +16,7 @@ from repositories.characters import CharacterRepo
 from repositories.drafts import DraftRepo
 from repositories.games import GameRepo
 from repositories.groups import GroupRepo
+from repositories.leaderboard import LeaderboardRepo
 from repositories.matches import MatchRepo
 from repositories.players import PlayerRepo
 from repositories.standings import StandingsRepo
@@ -36,6 +37,7 @@ class AppContext:
     matches: MatchRepo
     standings: StandingsRepo
     characters: CharacterRepo
+    leaderboard: LeaderboardRepo
     catalog: CharacterCatalog = field(default_factory=CharacterCatalog)
     rng: random.Random = field(default_factory=random.SystemRandom)
     bot: Bot | None = None
@@ -48,7 +50,7 @@ class AppContext:
     @classmethod
     def create(cls, settings: Settings, db: Database) -> "AppContext":
         return cls(settings, db, UserRepo(db), GroupRepo(db), GameRepo(db), PlayerRepo(db),
-                   DraftRepo(db), MatchRepo(db), StandingsRepo(db), CharacterRepo(db))
+                   DraftRepo(db), MatchRepo(db), StandingsRepo(db), CharacterRepo(db), LeaderboardRepo(db))
 
     def lock(self, key: Hashable) -> asyncio.Lock:
         return self._locks.setdefault(key, asyncio.Lock())

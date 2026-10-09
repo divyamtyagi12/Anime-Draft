@@ -12,6 +12,13 @@ from utils import messages as msg
 GROUP_TYPES = (ChatType.GROUP, ChatType.SUPERGROUP)
 
 
+def dm_welcome_markup(ctx) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏆 LEADERBOARD", callback_data="lbd:menu")],
+        [InlineKeyboardButton("➕ Add me to a group", url=f"https://t.me/{ctx.bot_username}?startgroup=true")],
+    ])
+
+
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ctx = get_ctx(context)
     chat, user, message = update.effective_chat, update.effective_user, update.effective_message
@@ -20,9 +27,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     if chat.type == ChatType.PRIVATE:
         await ctx.users.upsert(user.id, user.username, user.first_name, dm_started=True)
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton(
-            "➕ Add me to a group", url=f"https://t.me/{ctx.bot_username}?startgroup=true")]])
-        await message.reply_html(msg.welcome_dm(), reply_markup=kb)
+        await message.reply_html(msg.welcome_dm(), reply_markup=dm_welcome_markup(ctx))
         return
 
     if chat.type not in GROUP_TYPES:

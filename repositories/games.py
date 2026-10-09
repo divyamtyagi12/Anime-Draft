@@ -54,6 +54,14 @@ class GameRepo:
         return await self.db.exec(
             lambda c: c.table("games").select("*").eq("status", "COMPLETED").eq("final_announced", False))
 
+    async def unprocessed_completed(self) -> list[dict]:
+        """Finished + announced games whose results are not yet in the leaderboard (oldest first,
+        so Elo is applied in the order the tournaments actually ended)."""
+        return await self.db.exec(
+            lambda c: c.table("games").select("*").eq("status", "COMPLETED")
+            .eq("leaderboard_processed", False).eq("final_announced", True)
+            .order("completed_at").order("id"))
+
     async def claim_announcement(self, game_id: int) -> bool:
         rows = await self.db.exec(
             lambda c: c.table("games").update({"final_announced": True})

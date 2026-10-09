@@ -87,3 +87,23 @@ Edit `data/characters.py` (ratings 1–100, eligible categories, abilities) and 
 - Webhook: set `RUN_MODE=webhook`, `WEBHOOK_URL=https://your.domain`, a non-guessable `WEBHOOK_PATH`, a random `WEBHOOK_SECRET`, and put TLS in front (reverse proxy) forwarding to `WEBHOOK_PORT`.
 - Docker sketch: `FROM python:3.12-slim`, `COPY . /app`, `pip install -r requirements.txt`, `CMD ["python","bot.py"]`; pass secrets as env vars (Railway/Fly/Render/systemd) — never bake `.env` into an image.
 - Back up the Supabase project as usual; game history stays in `games/matches/match_clashes`.
+
+## 🏆 Leaderboard
+
+`/leaderboard` (or the 🏆 button under `/start` in DM) opens the Global / Group boards.
+Everything lives in Supabase, so it survives restarts. **Upgrade:** re-run `database/schema.sql`
+(idempotent) in the Supabase SQL editor, then restart the bot.
+
+* **When:** after the Grand Final, `announce_final` calls `record_game_results` (one atomic SQL
+  function, guarded by `games.leaderboard_processed` + `unique(user_id, game_id)` in `rating_history`),
+  then posts the championship with rating changes and buttons. Cancelled/unfinished games never count.
+* **Rating (global):** everyone starts at 1000. Pairwise Elo over the final placement
+  (champion, runner-up, then league-table order): for each opponent `S = 1` if you finished above
+  them else `0`, `E = 1/(1+10^((R_opp−R_me)/400))`, `change = round(32/(N−1) · Σ(S−E))`.
+  Beating stronger players pays more; losing to weaker ones costs more. Spec + tests: `game/rating.py`.
+* **Group boards:** keyed by Telegram chat id, rank by Championships (default), Total wins or Win rate
+  (win rate needs 5+ league matches). Matches W/D/L are league matches; clashes include the final.
+* **Ties:** equal keys share a rank (1, 2, 2, 4); order inside a tie is by user id so pages are stable.
+* **Old games:** finished before the upgrade → not counted. To count them, run
+  `update games set leaderboard_processed = false where status = 'COMPLETED';` and restart
+  (they are applied oldest-first).

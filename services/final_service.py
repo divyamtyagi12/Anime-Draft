@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 
-from services import match_service, table_service
+from services import leaderboard_service, match_service, table_service
 from services.context import AppContext
 from services.telegram_io import send_message
 from utils import messages as msg
@@ -36,6 +36,7 @@ async def announce_final(ctx: AppContext, game_id: int) -> None:
     game = await ctx.games.get(game_id)
     if not game or game["status"] != "COMPLETED":
         return
+    await leaderboard_service.record_game(ctx, game_id)  # idempotent; never blocks the announcement
     if not await ctx.games.claim_announcement(game_id):  # only one announcement ever
         return
     try:
@@ -44,7 +45,10 @@ async def announce_final(ctx: AppContext, game_id: int) -> None:
         result = match_service.result_from_rows(ctx, await ctx.matches.clashes(match["id"]), match)
         text = msg.final_announcement(players[match["p1_id"]]["display_name"],
                                       players[match["p2_id"]]["display_name"], result)
-        if await send_message(ctx, game["group_id"], text) is None:
+        block, markup = await leaderboard_service.final_block(ctx, game, players, match)
+        if block:
+            text += "\n\n" + block
+        if await send_message(ctx, game["group_id"], text, reply_markup=markup) is None:
             raise RuntimeError("could not post the final announcement")
     except Exception:
         await ctx.games.release_announcement(game_id)  # allow a retry (recovery)

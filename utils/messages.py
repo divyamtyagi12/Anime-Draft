@@ -41,6 +41,7 @@ def help_text() -> str:
         "/team — your drafted team (DM)\n"
         "/draft — resend your current draft prompt (DM)\n"
         "/table — league standings (group)\n"
+        "/leaderboard — global & group rankings\n"
         "/status — current game status\n"
         "/cancelgame — cancel the game (host/admin)\n"
     )
@@ -234,4 +235,98 @@ def final_announcement(n1: str, n2: str, result: MatchResult) -> str:
         lines.append(f"{info.emoji} {info.label} — {esc(n1 if c.winner_side == 1 else n2)}")
     lines += ["", "👑 <b>CHAMPION</b>", "", f"🎉 <b>TEAM {esc(champ.upper())} WINS!</b> 🪩", "",
               f"🥇 {esc(champ)}", f"🥈 {esc(runner)}", "", "Congratulations!"]
+    return "\n".join(lines)
+
+
+# ───────────────────────── leaderboard ─────────────────────────
+GROUP_CRITERIA_LABELS = {"champs": "Championships", "wins": "Total wins", "winrate": "Win rate"}
+
+
+def _plural(n: int, one: str, many: str | None = None) -> str:
+    return f"{n} {one if n == 1 else (many or one + 's')}"
+
+
+def leaderboard_menu_text() -> str:
+    return "🏆 <b>ANIME DRAFT LEADERBOARD</b>\n\nChoose which leaderboard you want to view."
+
+
+def global_leaderboard_text(data: Mapping[str, Any], page: int, page_size: int) -> str:
+    total = int(data.get("total") or 0)
+    pages = max(1, -(-total // page_size))
+    lines = ["🌍 <b>GLOBAL RANKINGS</b>", f"<i>Page {page + 1}/{pages} · {_plural(total, 'player')}</i>", ""]
+    rows = data.get("rows") or []
+    if not rows:
+        lines.append("No rated players yet — finish a tournament to get on the board!")
+    for r in rows:
+        lines.append(f"{rank_badge(int(r['rank']) - 1)} {esc(r['name'])} — {r['rating']} 🏆")
+    me = data.get("me")
+    lines.append("")
+    if me:
+        lines += [f"<b>Your Global Rank:</b> #{me['rank']}", f"<b>Your Rating:</b> {me['rating']} 🏆"]
+    else:
+        lines.append("<i>You're unranked — finish a tournament to start at 1000 🏆</i>")
+    return "\n".join(lines)
+
+
+def group_leaderboard_text(data: Mapping[str, Any], criteria: str, page: int, page_size: int,
+                           min_matches: int) -> str:
+    total = int(data.get("total") or 0)
+    pages = max(1, -(-total // page_size))
+    title = data.get("title") or "This group"
+    lines = ["👥 <b>GROUP RANKINGS</b>", "", f"📍 {esc(title)}",
+             f"<i>Ranked by {GROUP_CRITERIA_LABELS.get(criteria, 'Championships')} · "
+             f"page {page + 1}/{pages}</i>", ""]
+    rows = data.get("rows") or []
+    if not rows:
+        lines.append("Nobody qualifies yet." if criteria == "winrate" else "No finished tournaments here yet.")
+    for r in rows:
+        if criteria == "wins":
+            value = _plural(r["matches_won"], "Win")
+        elif criteria == "winrate":
+            value = f"{float(r['win_rate']):g}% ({r['matches_won']}/{r['matches_played']})"
+        else:
+            value = _plural(r["championships_won"], "Championship")
+        lines.append(f"{rank_badge(int(r['rank']) - 1)} {esc(r['name'])} — {value}")
+    if criteria == "winrate":
+        lines += ["", f"<i>League win rate · minimum {min_matches} matches</i>"]
+    me, st = data.get("me"), data.get("me_stats")
+    lines.append("")
+    if me:
+        lines.append(f"<b>Your Group Rank:</b> #{me['rank']}")
+    elif st and criteria == "winrate":
+        lines.append(f"<i>Unranked here — play {min_matches}+ league matches ({st['matches_played']} so far)</i>")
+    else:
+        lines.append("<i>You haven't played a finished tournament in this group.</i>")
+    if st:
+        lines.append(
+            f"📊 {_plural(st['tournaments_played'], 'tournament')} · 🏆 {st['championships_won']} · "
+            f"🥈 {st['runner_up_finishes']} · W-D-L {st['matches_won']}-{st['matches_drawn']}-{st['matches_lost']} · "
+            f"clashes {st['clashes_won']}-{st['clashes_lost']} · {float(st['win_rate']):g}% wins")
+    return "\n".join(lines)
+
+
+def group_picker_text(has_groups: bool) -> str:
+    if not has_groups:
+        return ("👥 <b>GROUP RANKINGS</b>\n\nYou haven't finished a tournament in any group yet. "
+                "Play one and your group will show up here!")
+    return "👥 <b>GROUP RANKINGS</b>\n\nSelect a group you have played in."
+
+
+def _rating_line(name: str, ch: Mapping[str, Any] | None) -> str | None:
+    if not ch:
+        return None
+    return f"{esc(name)}: {ch['old_rating']} → {ch['new_rating']} ({ch['rating_change']:+d})"
+
+
+def final_leaderboard_block(champ: str, champ_change: Mapping[str, Any] | None,
+                            runner: str, runner_change: Mapping[str, Any] | None,
+                            group_championships: int | None, group_rank: int | None) -> str:
+    lines: list[str] = []
+    rl = [x for x in (_rating_line(champ, champ_change), _rating_line(runner, runner_change)) if x]
+    if rl:
+        lines += ["🌍 <b>Global Rating</b>"] + rl
+    if group_championships is not None:
+        lines.append(f"👥 Group Championships: {group_championships}")
+    if group_rank is not None:
+        lines.append(f"🏆 Group Rank: #{group_rank}")
     return "\n".join(lines)

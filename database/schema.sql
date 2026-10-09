@@ -362,3 +362,287 @@ grant execute on function begin_draft(bigint, timestamptz)           to service_
 grant execute on function begin_league(bigint)                       to service_role;
 grant execute on function begin_final(bigint, bigint, bigint)        to service_role;
 grant execute on function finish_match(bigint, jsonb, int, numeric, numeric) to service_role;
+
+
+-- ════════════════════════════════════════════════════════════════════
+--  LEADERBOARD  (global Elo rating + per-group stats)
+--  Idempotent: safe to re-run.
+-- ════════════════════════════════════════════════════════════════════
+
+-- games.leaderboard_processed = "results of this game are already in the stats".
+-- Games that finished BEFORE the leaderboard existed are marked processed so they
+-- don't silently change ratings. To count them, run once, then restart the bot:
+--     update games set leaderboard_processed = false where status = 'COMPLETED';
+do $$
+begin
+  if not exists (select 1 from information_schema.columns
+                  where table_schema = current_schema()
+                    and table_name = 'games' and column_name = 'leaderboard_processed') then
+    alter table games add column leaderboard_processed boolean not null default false;
+    update games set leaderboard_processed = true where status in ('COMPLETED', 'CANCELLED');
+  end if;
+end $$;
+
+create table if not exists player_global_stats (
+  user_id             bigint primary key references users(id),     -- Telegram user id
+  rating              integer not null default 1000,
+  tournaments_played  integer not null default 0,
+  championships_won   integer not null default 0,
+  runner_up_finishes  integer not null default 0,
+  matches_won         integer not null default 0,                  -- league matches
+  matches_lost        integer not null default 0,
+  matches_drawn       integer not null default 0,
+  clashes_won         integer not null default 0,                  -- league + final clashes
+  clashes_lost        integer not null default 0,
+  updated_at          timestamptz not null default now()
+);
+-- Serves "top N", "my rank" (count of strictly better rows) and pagination.
+create index if not exists idx_pgs_rank
+  on player_global_stats (rating desc, championships_won desc, runner_up_finishes desc, user_id);
+
+create table if not exists player_group_stats (
+  user_id             bigint not null references users(id),
+  group_id            bigint not null references groups(id),       -- Telegram chat id
+  tournaments_played  integer not null default 0,
+  championships_won   integer not null default 0,
+  runner_up_finishes  integer not null default 0,
+  matches_won         integer not null default 0,
+  matches_lost        integer not null default 0,
+  matches_drawn       integer not null default 0,
+  clashes_won         integer not null default 0,
+  clashes_lost        integer not null default 0,
+  updated_at          timestamptz not null default now(),
+  primary key (group_id, user_id)                                  -- one row per player per group
+);
+create index if not exists idx_pgrs_user  on player_group_stats (user_id, updated_at desc);
+create index if not exists idx_pgrs_champs
+  on player_group_stats (group_id, championships_won desc, runner_up_finishes desc, user_id);
+create index if not exists idx_pgrs_wins
+  on player_group_stats (group_id, matches_won desc, clashes_won desc, user_id);
+
+create table if not exists rating_history (
+  id             bigint generated always as identity primary key,
+  user_id        bigint  not null references users(id),
+  game_id        bigint  not null references games(id),
+  old_rating     integer not null,
+  new_rating     integer not null,
+  rating_change  integer not null,
+  created_at     timestamptz not null default now(),
+  unique (user_id, game_id)                       -- a tournament can never reward a player twice
+);
+create index if not exists idx_rating_history_game on rating_history (game_id);
+create index if not exists idx_rating_history_user on rating_history (user_id, id desc);
+
+-- ───────────── recording a finished tournament (atomic + idempotent) ─────────────
+-- p_placements: Telegram user ids, 1st place first (champion, runner-up, then the
+-- remaining players in final league-table order). No ties: the league table already
+-- breaks every tie deterministically.
+--
+-- Rating formula (pairwise Elo, "multiplayer Elo"):
+--   for every pair (me, opp) in the tournament
+--       S = 1 if I placed above opp else 0
+--       E = 1 / (1 + 10 ^ ((R_opp - R_me) / 400))
+--   change = round( K / (N - 1) * Σ (S - E) )          K = 32, N = number of players
+-- Beating a stronger player earns more (S - E is large), losing to a weaker one costs
+-- more (E is large). All ratings used are the values BEFORE this tournament.
+create or replace function record_game_results(
+  p_game_id bigint, p_placements bigint[], p_k numeric default 32
+) returns jsonb language plpgsql as $$
+declare
+  g games%rowtype;
+  v_n int;
+begin
+  select * into g from games where id = p_game_id for update;       -- serialises per game
+  if not found or g.status <> 'COMPLETED' then
+    return jsonb_build_object('status', 'NOT_COMPLETED');            -- cancelled / unfinished never count
+  end if;
+  if g.leaderboard_processed then
+    return jsonb_build_object('status', 'ALREADY');                  -- idempotent
+  end if;
+
+  v_n := coalesce(array_length(p_placements, 1), 0);
+  if v_n < 2
+     or (select count(distinct x) from unnest(p_placements) as x) <> v_n
+     or (select count(*) from game_players where game_id = p_game_id) <> v_n
+     or exists (select 1 from game_players gp
+                 where gp.game_id = p_game_id and gp.user_id <> all (p_placements))
+     or g.champion_user_id is distinct from p_placements[1] then
+    raise exception 'record_game_results: placements do not match game %', p_game_id;
+  end if;
+
+  insert into player_global_stats (user_id)
+    select unnest(p_placements) on conflict do nothing;
+  insert into player_group_stats (group_id, user_id)
+    select g.group_id, unnest(p_placements) on conflict do nothing;
+  -- lock everyone's global row in a fixed order (no deadlocks between concurrent games)
+  perform 1 from player_global_stats where user_id = any (p_placements) order by user_id for update;
+
+  with placed as (
+    select u.user_id, u.ord::int as place
+      from unnest(p_placements) with ordinality as u(user_id, ord)
+  ),
+  pre as (
+    select p.user_id, p.place, s.rating
+      from placed p join player_global_stats s on s.user_id = p.user_id
+  ),
+  delta as (
+    select a.user_id, a.place, a.rating as old_rating,
+           round((p_k / (v_n - 1) * sum(
+             (case when a.place < b.place then 1.0 else 0.0 end)
+             - 1.0 / (1.0 + power(10.0, (b.rating - a.rating) / 400.0))
+           ))::numeric)::int as change
+      from pre a join pre b on b.user_id <> a.user_id
+     group by a.user_id, a.place, a.rating
+  ),
+  league as (
+    select gp.user_id, st.wins, st.draws, st.losses, st.clashes_won, st.clashes_lost
+      from standings st join game_players gp on gp.id = st.game_player_id
+     where st.game_id = p_game_id
+  ),
+  fin as (
+    select gp.user_id,
+           case when m.p1_id = gp.id then m.p1_score else m.p2_score end as cw,
+           case when m.p1_id = gp.id then m.p2_score else m.p1_score end as cl
+      from matches m join game_players gp on gp.id in (m.p1_id, m.p2_id)
+     where m.game_id = p_game_id and m.stage = 'FINAL'
+  ),
+  line as (
+    select d.user_id, d.place, d.old_rating, d.change,
+           coalesce(l.wins, 0) as w, coalesce(l.draws, 0) as dr, coalesce(l.losses, 0) as lo,
+           coalesce(l.clashes_won, 0)  + coalesce(f.cw, 0) as cw,
+           coalesce(l.clashes_lost, 0) + coalesce(f.cl, 0) as cl
+      from delta d
+      left join league l on l.user_id = d.user_id
+      left join fin f    on f.user_id = d.user_id
+  ),
+  upd_global as (
+    update player_global_stats s set
+      rating = s.rating + x.change,
+      tournaments_played = s.tournaments_played + 1,
+      championships_won  = s.championships_won  + (x.place = 1)::int,
+      runner_up_finishes = s.runner_up_finishes + (x.place = 2)::int,
+      matches_won = s.matches_won + x.w, matches_drawn = s.matches_drawn + x.dr,
+      matches_lost = s.matches_lost + x.lo,
+      clashes_won = s.clashes_won + x.cw, clashes_lost = s.clashes_lost + x.cl,
+      updated_at = now()
+     from line x where s.user_id = x.user_id
+    returning s.user_id
+  ),
+  upd_group as (
+    update player_group_stats s set
+      tournaments_played = s.tournaments_played + 1,
+      championships_won  = s.championships_won  + (x.place = 1)::int,
+      runner_up_finishes = s.runner_up_finishes + (x.place = 2)::int,
+      matches_won = s.matches_won + x.w, matches_drawn = s.matches_drawn + x.dr,
+      matches_lost = s.matches_lost + x.lo,
+      clashes_won = s.clashes_won + x.cw, clashes_lost = s.clashes_lost + x.cl,
+      updated_at = now()
+     from line x where s.group_id = g.group_id and s.user_id = x.user_id
+    returning s.user_id
+  )
+  insert into rating_history (user_id, game_id, old_rating, new_rating, rating_change)
+    select x.user_id, p_game_id, x.old_rating, x.old_rating + x.change, x.change from line x;
+
+  update games set leaderboard_processed = true where id = p_game_id;
+  return jsonb_build_object('status', 'OK');
+end $$;
+
+-- ───────────── reading the boards (one round trip, indexed, paginated) ─────────────
+-- Ties: players with identical (rating, championships, runner-ups) share a rank
+-- (1,2,2,4 style). Inside a tie the order is by user id so pages never shuffle.
+create or replace function global_leaderboard(
+  p_user_id bigint, p_limit int default 10, p_offset int default 0
+) returns jsonb language sql stable as $$
+  with page as (
+    select s.* from player_global_stats s
+     order by s.rating desc, s.championships_won desc, s.runner_up_finishes desc, s.user_id
+     limit p_limit offset p_offset
+  )
+  select jsonb_build_object(
+    'total', (select count(*) from player_global_stats),
+    'rows', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'rank', 1 + (select count(*) from player_global_stats t
+                      where (t.rating, t.championships_won, t.runner_up_finishes)
+                          > (p.rating, p.championships_won, p.runner_up_finishes)),
+        'user_id', p.user_id,
+        'name', coalesce(nullif(u.first_name, ''), u.username, 'Player'),
+        'rating', p.rating,
+        'championships_won', p.championships_won,
+        'tournaments_played', p.tournaments_played)
+        order by p.rating desc, p.championships_won desc, p.runner_up_finishes desc, p.user_id)
+      from page p join users u on u.id = p.user_id), '[]'::jsonb),
+    'me', (
+      select jsonb_build_object(
+        'rank', 1 + (select count(*) from player_global_stats t
+                      where (t.rating, t.championships_won, t.runner_up_finishes)
+                          > (m.rating, m.championships_won, m.runner_up_finishes)),
+        'rating', m.rating, 'tournaments_played', m.tournaments_played)
+      from player_global_stats m where m.user_id = p_user_id)
+  );
+$$;
+
+-- p_criteria: 'champs' (default) | 'wins' | 'winrate'
+--   champs : championships → runner-ups → league matches won
+--   wins   : league matches won → clashes won → championships
+--   winrate: win % of league matches (needs >= p_min_matches played) → matches played → championships
+create or replace function group_leaderboard(
+  p_group_id bigint, p_criteria text, p_user_id bigint,
+  p_limit int default 10, p_offset int default 0, p_min_matches int default 5
+) returns jsonb language sql stable as $$
+  with keyed as (
+    select s.user_id, s.tournaments_played, s.championships_won, s.runner_up_finishes,
+           s.matches_won, s.matches_lost, s.matches_drawn, s.clashes_won, s.clashes_lost,
+           (s.matches_won + s.matches_lost + s.matches_drawn) as matches_played,
+           case when (s.matches_won + s.matches_lost + s.matches_drawn) > 0
+                then round(100.0 * s.matches_won / (s.matches_won + s.matches_lost + s.matches_drawn), 1)
+                else 0 end as win_rate
+      from player_group_stats s
+     where s.group_id = p_group_id
+  ),
+  scored as (
+    select k.*,
+      (case p_criteria when 'wins' then k.matches_won when 'winrate' then k.win_rate
+                       else k.championships_won end)::numeric as k1,
+      (case p_criteria when 'wins' then k.clashes_won when 'winrate' then k.matches_played
+                       else k.runner_up_finishes end)::numeric as k2,
+      (case p_criteria when 'wins' then k.championships_won when 'winrate' then k.championships_won
+                       else k.matches_won end)::numeric as k3
+      from keyed k
+     where p_criteria <> 'winrate' or k.matches_played >= p_min_matches
+  ),
+  ranked as (
+    select c.*,
+           rank()       over (order by c.k1 desc, c.k2 desc, c.k3 desc)               as rnk,
+           row_number() over (order by c.k1 desc, c.k2 desc, c.k3 desc, c.user_id)    as rn
+      from scored c
+  )
+  select jsonb_build_object(
+    'title', (select title from groups where id = p_group_id),
+    'total', (select count(*) from ranked),
+    'rows', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'rank', r.rnk, 'user_id', r.user_id,
+        'name', coalesce(nullif(u.first_name, ''), u.username, 'Player'),
+        'tournaments_played', r.tournaments_played, 'championships_won', r.championships_won,
+        'runner_up_finishes', r.runner_up_finishes, 'matches_won', r.matches_won,
+        'matches_lost', r.matches_lost, 'matches_drawn', r.matches_drawn,
+        'matches_played', r.matches_played, 'win_rate', r.win_rate) order by r.rn)
+      from ranked r join users u on u.id = r.user_id
+     where r.rn > p_offset and r.rn <= p_offset + p_limit), '[]'::jsonb),
+    'me',       (select to_jsonb(r) from ranked r where r.user_id = p_user_id),
+    'me_stats', (select to_jsonb(k) from keyed k  where k.user_id = p_user_id)
+  );
+$$;
+
+-- ───────────── security (same model as the rest of the schema) ─────────────
+alter table player_global_stats enable row level security;
+alter table player_group_stats  enable row level security;
+alter table rating_history      enable row level security;
+
+revoke all on function record_game_results(bigint, bigint[], numeric)               from public, anon, authenticated;
+revoke all on function global_leaderboard(bigint, int, int)                         from public, anon, authenticated;
+revoke all on function group_leaderboard(bigint, text, bigint, int, int, int)       from public, anon, authenticated;
+grant execute on function record_game_results(bigint, bigint[], numeric)            to service_role;
+grant execute on function global_leaderboard(bigint, int, int)                      to service_role;
+grant execute on function group_leaderboard(bigint, text, bigint, int, int, int)    to service_role;
