@@ -28,8 +28,38 @@ def confirm(offer_id: int, pos: int) -> Markup:
 
 
 def draft_done(team_id: int, tid: int) -> Markup:
-    return Markup([[Btn("📋 VIEW MY SQUAD", callback_data=f"ipl:tm:{team_id}")],
-                   [Btn("🏆 TOURNAMENT STATUS", callback_data=f"ipl:ts:{tid}")]])
+    """After squad is complete, go straight into batting order selection."""
+    return Markup([[Btn("🏏 SET BATTING ORDER", callback_data=f"ipl:bo:{team_id}:0")],
+                   [Btn("📋 VIEW MY SQUAD", callback_data=f"ipl:tm:{team_id}")]])
+
+
+def batting_order(team_id: int, remaining: Sequence[dict], ordered_count: int) -> Markup:
+    """Grid of remaining players for the user to pick batting position {ordered_count+1}."""
+    rows = [[Btn(f"{c['pos']}. {c['player']['name']}", callback_data=f"ipl:bop:{team_id}:{c['pos']}")] for c in remaining]
+    control = []
+    if ordered_count > 0:
+        control.append(Btn("↩️ UNDO", callback_data=f"ipl:bou:{team_id}"))
+        control.append(Btn("🔄 RESET", callback_data=f"ipl:bor:{team_id}"))
+    if control:
+        rows.append(control)
+    if not remaining:
+        rows.append([Btn("✅ CONFIRM ORDER", callback_data=f"ipl:boc:{team_id}")])
+    return Markup(rows)
+
+
+def batting_order_confirm(team_id: int) -> Markup:
+    return Markup([[Btn("✅ CONFIRM BATTING ORDER", callback_data=f"ipl:boc:{team_id}")],
+                   [Btn("🔄 RESET", callback_data=f"ipl:bor:{team_id}")]])
+
+
+def dm_match_card_buttons(tid: int, match_id: int) -> Markup:
+    """Buttons on the DM match result card: Full Scorecard, Next Match, Points Table, Tournament Progress."""
+    return Markup([
+        [Btn("📋 FULL SCORECARD", callback_data=f"ipl:sc:{match_id}:0"), Btn("⏭ NEXT MATCH", callback_data=f"ipl:nx:{tid}")],
+        [Btn("📊 POINTS TABLE", callback_data=f"ipl:tb:{tid}"), Btn("🏆 TOURNAMENT PROGRESS", callback_data=f"ipl:ts:{tid}")]
+    ])
+
+
 
 
 def group_dashboard(tid: int) -> Markup:

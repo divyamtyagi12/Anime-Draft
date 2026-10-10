@@ -90,7 +90,8 @@ async def after_pick(rt: IplRuntime, res: dict, message_id: int | None, *, auto:
         if not team.get("auto_draft") or not auto:
             await notify.edit_dm(rt, user_id, message_id, m.drafted_text(res["player"], players, auto=auto))
         if res["done"]:
-            await notify.dm(rt, user_id, m.draft_complete_text(team, players), kb.draft_done(team["id"], res["tournament_id"]))
+            from . import batting_order_service
+            await batting_order_service.start_batting_order_flow(rt, team, players)
         else:
             await deliver_offer(rt, team)
         await update_progress(rt, res["tournament_id"], force=bool(res["done"]))

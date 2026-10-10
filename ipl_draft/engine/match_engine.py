@@ -364,7 +364,8 @@ def _super_over(rng: random.Random, first: Squad, second: Squad, no: int, used_b
     return i1, i2
 
 
-def simulate_match(sq_a: Squad, sq_b: Squad, rng: random.Random, *, seed: str = "") -> MatchOutcome:
+def simulate_match(sq_a: Squad, sq_b: Squad, rng: random.Random, *, seed: str = "",
+                   order_a: list[Player] | None = None, order_b: list[Player] | None = None) -> MatchOutcome:
     """sq_a is the 'home' side. Winner is derived from the simulated ball-by-ball scores."""
     toss_winner = sq_a if rng.random() < 0.5 else sq_b
     pitch = max(0.88, min(1.12, rng.gauss(1.0, 0.05)))
@@ -372,9 +373,11 @@ def simulate_match(sq_a: Squad, sq_b: Squad, rng: random.Random, *, seed: str = 
     other = sq_b if toss_winner is sq_a else sq_a
     first, second = (other, toss_winner) if field_first else (toss_winner, other)
     decision = "FIELD" if field_first else "BAT"
+    order1 = order_a if first is sq_a else order_b
+    order2 = order_b if second is sq_b else order_a
 
-    i1 = InningsSim(rng, first, second, 1, pitch=pitch).run()
-    i2 = InningsSim(rng, second, first, 2, target=i1.runs + 1, pitch=pitch).run()
+    i1 = InningsSim(rng, first, second, 1, pitch=pitch, order=order1).run()
+    i2 = InningsSim(rng, second, first, 2, target=i1.runs + 1, pitch=pitch, order=order2).run()
     innings = [i1, i2]
     super_overs = 0
     winner: Squad | None

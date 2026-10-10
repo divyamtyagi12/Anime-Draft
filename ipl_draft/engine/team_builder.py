@@ -14,14 +14,11 @@ from typing import Mapping, Sequence
 from .draft_engine import SQUAD, can_bowl, needs
 
 FRANCHISES = [
-    ("MI", "Mumbai Indians", "🔵"),
-    ("CSK", "Chennai Super Kings", "🟡"),
+    ("MI",  "Mumbai Indians",             "🔵"),
+    ("CSK", "Chennai Super Kings",        "🟡"),
     ("RCB", "Royal Challengers Bengaluru", "🔴"),
-    ("KKR", "Kolkata Knight Riders", "🟣"),
-    ("RR", "Rajasthan Royals", "🩷"),
-    ("PBKS", "Punjab Kings", "❤️"),
-    ("GT", "Gujarat Titans", "⚪"),
-    ("LSG", "Lucknow Super Giants", "🩵"),
+    ("KKR", "Kolkata Knight Riders",      "🟣"),
+    ("DC",  "Delhi Capitals",             "🔷"),
 ]
 FRANCHISE_EMOJI = {c: e for c, _, e in FRANCHISES}
 

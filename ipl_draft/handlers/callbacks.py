@@ -25,7 +25,7 @@ from services.telegram_io import safe_edit, send_message
 
 from .. import keyboards as kb
 from .. import messages as m
-from ..services import draft_service, tournament_service
+from ..services import batting_order_service, draft_service, tournament_service
 
 log = logging.getLogger(__name__)
 GROUP_TYPES = (ChatType.GROUP, ChatType.SUPERGROUP)
@@ -361,6 +361,78 @@ async def play_again(rt, context, q) -> None:
     await arena.show_picker(rt.ctx, chat.id, user)
 
 
-ROUTES = {"j": join, "lv": leave, "st": force_start, "ru": rules, "pk": pick, "bk": back, "cf": confirm,
-          "tm": my_team, "ts": status, "tb": table, "fx": fixtures, "mh": history, "at": all_teams,
-          "br": bracket, "sc": scorecard, "sp": scorecard_p, "tr": table_refresh, "fp": fixtures_p, "mp": history_p, "ap": all_teams_p, "sm": summary, "lb": leaderboard, "pa": play_again}
+# ───────────────────────── batting order & next match ─────────────────────────
+async def bo_start(rt, context, q, team_id: int, pos: int = 0) -> None:
+    state = await batting_order_service.get_batting_order_state(rt, team_id)
+    if not state:
+        return await safe_answer(q, "⚠️ Team roster not found.", True)
+    await safe_answer(q)
+    text = m.batting_order_prompt(state["players"], state["ordered"], state["remaining"])
+    markup = kb.batting_order_confirm(team_id) if not state["remaining"] else kb.batting_order(team_id, state["remaining"], len(state["ordered"]))
+    await _edit(rt, q, text, markup)
+
+
+async def bo_pick(rt, context, q, team_id: int, pos: int) -> None:
+    user = q.from_user
+    msg_id = q.message.message_id if q.message else None
+    res = await batting_order_service.pick_batter(rt, user.id, team_id, pos, msg_id)
+    if res == "NOT_YOURS":
+        return await safe_answer(q, "⚠️ This is not your team.", True)
+    if res == "DONE":
+        return await safe_answer(q, "✅ Lineup already confirmed.", True)
+    if res == "ALREADY":
+        return await safe_answer(q, "⚠️ Already assigned.", True)
+    await safe_answer(q)
+
+
+async def bo_undo(rt, context, q, team_id: int) -> None:
+    user = q.from_user
+    msg_id = q.message.message_id if q.message else None
+    res = await batting_order_service.undo_pick(rt, user.id, team_id, msg_id)
+    if res == "NOT_YOURS":
+        return await safe_answer(q, "⚠️ This is not your team.", True)
+    await safe_answer(q)
+
+
+async def bo_reset(rt, context, q, team_id: int) -> None:
+    user = q.from_user
+    msg_id = q.message.message_id if q.message else None
+    res = await batting_order_service.reset_order(rt, user.id, team_id, msg_id)
+    if res == "NOT_YOURS":
+        return await safe_answer(q, "⚠️ This is not your team.", True)
+    await safe_answer(q)
+
+
+async def bo_confirm(rt, context, q, team_id: int) -> None:
+    user = q.from_user
+    msg_id = q.message.message_id if q.message else None
+    res = await batting_order_service.confirm_order(rt, user.id, team_id, msg_id)
+    if res == "NOT_YOURS":
+        return await safe_answer(q, "⚠️ This is not your team.", True)
+    if res == "INCOMPLETE":
+        return await safe_answer(q, "⚠️ Assign all 11 players before confirming.", True)
+    if res == "ALREADY":
+        return await safe_answer(q, "✅ Already confirmed.", True)
+    await safe_answer(q, "✅ Lineup confirmed!")
+
+
+async def next_match(rt, context, q, tid: int) -> None:
+    user = q.from_user
+    team = await rt.repo.team_of_user(tid, user.id)
+    if not team:
+        return await safe_answer(q, "⚠️ You are not in this tournament.", True)
+    t = await rt.repo.get(tid)
+    if not t:
+        return await safe_answer(q, "⚠️ Tournament not found.", True)
+    if t["state"] in ("COMPLETED", "CANCELLED"):
+        return await safe_answer(q, "🏁 Tournament has concluded. Check points table or summary.", True)
+    await safe_answer(q, "⚡ Matches simulate automatically! Results appear in your DM.")
+
+
+ROUTES = {
+    "j": join, "lv": leave, "st": force_start, "ru": rules, "pk": pick, "bk": back, "cf": confirm,
+    "tm": my_team, "ts": status, "tb": table, "fx": fixtures, "mh": history, "at": all_teams,
+    "br": bracket, "sc": scorecard, "sp": scorecard_p, "tr": table_refresh, "fp": fixtures_p,
+    "mp": history_p, "ap": all_teams_p, "sm": summary, "lb": leaderboard, "pa": play_again,
+    "bo": bo_start, "bop": bo_pick, "bou": bo_undo, "bor": bo_reset, "boc": bo_confirm, "nx": next_match,
+}

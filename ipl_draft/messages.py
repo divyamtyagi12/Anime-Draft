@@ -54,7 +54,7 @@ def lobby_text(t: Mapping, teams: Sequence[Mapping]) -> str:
     status = {"LOBBY": "", "CANCELLED": "\n\n❌ <b>Cancelled</b>"}.get(t["state"], "\n\n🔒 <b>Lobby closed — the draft has started!</b>")
     return (
         "🏏 <b>IPL DRAFT</b>\n\n🏆 <b>MULTIPLAYER CRICKET TOURNAMENT</b>\n\n"
-        f"👥 Human Players: <b>{n}/{mx}</b>\n🤖 System Teams: <b>8</b>\n\n"
+        f"👥 Human Players: <b>{n}/{mx}</b>\n🤖 System Teams: <b>5</b>\n\n"
         "🏏 Squad Size: <b>11 Players</b>\n\n🎲 Draft System:\n<b>11 Random Choices Per Pick</b>\n\n"
         "🏆 Tournament:\n<b>Double Round Robin + IPL Playoffs</b>\n\n"
         f"{LINE}\n\n👥 <b>JOINED PLAYERS</b>\n\n" + "\n".join(rows) + f"\n\n{LINE}"
@@ -64,17 +64,21 @@ def lobby_text(t: Mapping, teams: Sequence[Mapping]) -> str:
 def rules_text(draft_seconds: int = 45) -> str:
     return (
         "📖 <b>IPL DRAFT — RULES</b>\n\n"
-        "👥 2–8 human managers + <b>8 system franchises</b> (MI, CSK, RCB, KKR, RR, PBKS, GT, LSG).\n\n"
+        "👥 2–8 human managers + <b>5 system franchises</b> (RCB 🔴, KKR 🟣, MI 🔵, CSK 🟡, DC 🔷).\n\n"
         f"🎲 <b>Draft (in your DM):</b> 11 rounds. Each round you get <b>11 random IPL cricketers</b> — pick exactly "
         f"<b>one</b> ({draft_seconds}s; if you're slow one is picked for you). No role restrictions: all batters is allowed… "
         "but the match engine will notice.\n\n"
         "🔒 Nobody else can be offered the cricketers you're choosing from, and nobody can draft the same player twice.\n\n"
+        "🏏 <b>Batting Order:</b> After your squad is complete, you'll set your batting lineup (1-11) via DM.\n"
+        "If you time out, a smart order is auto-assigned.\n\n"
         "🏟 <b>League:</b> double round robin — every team plays every other team twice. Win = 2 pts, no result = 1. "
         "Table: points → net run rate → wins.\n\n"
         "🔥 <b>Playoffs (top 4):</b> Eliminator (3v4) → Qualifier 1 (1v2) → Qualifier 2 → 🏆 Final. "
         "A system franchise can win it too!\n\n"
+        "📱 Match results appear in your <b>private DM</b>. The group only sees milestones and the final champion.\n\n"
         "🧠 Every match is a real ball-by-ball T20 simulation of the two squads — ratings stay hidden, scorecards are real.\n\n"
         "🏅 Awards: Orange Cap, Purple Cap, Player of the Tournament, Most Sixes, Best Innings.")
+
 
 
 DM_PROMPT = "⚠️ Please start the bot privately before joining IPL Draft."
@@ -112,8 +116,12 @@ def my_team_text(team: Mapping, players: Sequence[Mapping], complete: bool) -> s
 
 def draft_complete_text(team: Mapping, players: Sequence[Mapping]) -> str:
     rows = "\n".join(f"{i + 1}. {esc(p['name'])}" for i, p in enumerate(players))
-    return (f"🏆 <b>IPL DRAFT COMPLETE!</b>\n\n👑 YOUR TEAM: <b>{esc(team['name'].upper())}</b>\n\n{rows}\n\n{LINE}\n\n"
-            "✅ SQUAD COMPLETE: <b>11/11</b>\n\n🎯 TEAM STATUS: <b>READY</b>\n\n⏳ Waiting for other players...")
+    return (f"🏆 <b>IPL DRAFT COMPLETE!</b>\n\n👑 YOUR SQUAD: <b>{esc(team['name'].upper())}</b>\n\n{rows}\n\n{LINE}\n\n"
+            "✅ SQUAD COMPLETE: <b>11/11</b>\n\n"
+            "🏏 <b>NEXT STEP:</b> Set your batting order!\n"
+            "Use the buttons below to choose who bats 1st, 2nd, 3rd… and so on.")
+
+
 
 
 def draft_progress_text(rows: Sequence[Mapping]) -> str:
@@ -403,3 +411,70 @@ def status_text(t: Mapping, humans: int, extra: str = "") -> str:
               "PLAYOFF_FINAL": "Playoffs — Final", "COMPLETED": "Completed", "CANCELLED": "Cancelled",
               "FAILED_RECOVERABLE": "⚠️ Paused (an admin can /iplresume)"}
     return f"📊 <b>IPL DRAFT — Status</b>\n\nStage: <b>{labels.get(t['state'], t['state'])}</b>\nHuman managers: {humans}{extra}"
+
+
+# ───────────────────────── batting order ─────────────────────────
+def batting_order_prompt(players: Sequence[Mapping], ordered: Sequence[Mapping], remaining: Sequence[Mapping]) -> str:
+    """DM screen for the batting order selection flow."""
+    done = len(ordered)
+    total = len(players)
+    head = f"🏏 <b>SET YOUR BATTING ORDER ({done}/{total})</b>\n\n"
+    if ordered:
+        lines = "\n".join(f"  {i + 1}. <b>{esc(p['name'])}</b> {ROLE_EMOJI.get(p['role'], '')}" for i, p in enumerate(ordered))
+        head += f"<b>Confirmed lineup:</b>\n{lines}\n\n"
+    if remaining:
+        head += f"Select <b>batter #{done + 1}</b> from the buttons below:"
+    else:
+        head += "✅ All batters set — press <b>CONFIRM</b> to lock in your lineup."
+    return head
+
+
+def batting_order_confirmed_text(players: Sequence[Mapping]) -> str:
+    rows = "\n".join(f"  {i + 1}. <b>{esc(p['name'])}</b> {ROLE_EMOJI.get(p['role'], '')}" for i, p in enumerate(players))
+    return (f"✅ <b>BATTING ORDER CONFIRMED!</b>\n\n{rows}\n\n"
+            "⏳ Waiting for all teams to be ready… the league will start automatically.")
+
+
+def batting_order_timeout_text(players: Sequence[Mapping]) -> str:
+    rows = "\n".join(f"  {i + 1}. <b>{esc(p['name'])}</b> {ROLE_EMOJI.get(p['role'], '')}" for i, p in enumerate(players))
+    return (f"⏱ <b>TIME UP — BATTING ORDER AUTO-ASSIGNED</b>\n\n{rows}\n\n"
+            "⏳ Waiting for the league to start…")
+
+
+# ───────────────────────── DM match results ─────────────────────────
+def dm_match_result(card: Mapping, your_team_id: int) -> str:
+    """Short DM card shown to a human manager after their team's match."""
+    h, a = card.get("home_team") or {}, card.get("away_team") or {}
+    you = h if h.get("id") == your_team_id else a
+    opp = a if h.get("id") == your_team_id else h
+    inn = card.get("innings") or []
+    score_lines = []
+    for i in inn:
+        if i.get("is_super_over"):
+            continue
+        t = h if i.get("batting_team_id") == h.get("id") else a
+        score_lines.append(f"  {esc(t.get('short_name', t.get('name', '?')))}: {i['runs']}/{i['wickets']} ({overs_str(i['legal_balls'])} ov)")
+    winner_id = card.get("winner_team_id")
+    if winner_id is None:
+        result = "🤝 No result"
+    elif winner_id == your_team_id:
+        result = "🎉 <b>YOU WON!</b>"
+    else:
+        result = "😔 <b>You lost.</b>"
+    stage = STAGE_LABEL.get(card.get("stage", "LEAGUE"), "League")
+    return (f"🏏 <b>IPL DRAFT — {stage.upper()}</b>\n\n"
+            f"{esc(you.get('name', '?'))} vs {esc(opp.get('name', '?'))}\n\n"
+            + "\n".join(score_lines)
+            + f"\n\n{esc(card.get('summary', ''))}\n\n{result}")
+
+
+def dm_playoff_intro(stage: str, your_team_id: int, home: Mapping, away: Mapping) -> str:
+    """DM message previewing an upcoming playoff match for a human participant."""
+    you = home if home.get("id") == your_team_id else away
+    opp = away if home.get("id") == your_team_id else home
+    stage_name = STAGE_LABEL.get(stage, stage)
+    return (f"🔥 <b>{stage_name.upper()}</b>\n\n"
+            f"Your team: <b>{esc(you.get('name', '?'))}</b>\n"
+            f"Opponent: <b>{esc(opp.get('name', '?'))}</b>\n\n"
+            "⚡ Match simulation starting…")
+

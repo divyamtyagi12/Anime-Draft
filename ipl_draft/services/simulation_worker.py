@@ -23,7 +23,7 @@ from ..engine.playoffs import STATE_FOR_STAGE
 from ..engine.standings import rank_teams
 from ..engine.team_builder import franchise_payload
 from ..runtime import IplRuntime
-from . import draft_service, notification_service as notify, system_service
+from . import batting_order_service, draft_service, notification_service as notify, system_service
 
 log = logging.getLogger(__name__)
 ADVANCEABLE = ["DRAFTING", "SYSTEM_TEAM_GENERATION", "FIXTURE_GENERATION", "LEAGUE_RUNNING", "LEAGUE_COMPLETED",
@@ -86,6 +86,10 @@ async def _drafting(rt: IplRuntime, t: dict) -> bool:
     prog = await rt.repo.draft_progress(t["id"])
     if not prog or not all(p["done"] for p in prog):
         return False
+    # Ensure all human teams have confirmed their batting orders before proceeding
+    pending = await rt.repo.teams_pending_batting_order(t["id"])
+    if pending:
+        return False
     res = await rt.repo.begin_system_teams(t["id"], franchise_payload())
     return res.get("status") == "OK"
 
@@ -96,6 +100,9 @@ async def _system(rt: IplRuntime, t: dict) -> bool:
     res = await rt.repo.complete_system_teams(tid)
     if res.get("status") != "OK":
         raise RuntimeError(f"complete_system_teams: {res}")
+    # Auto-assign sensible batting order for each system franchise based on ratings
+    for s_team in [x for x in await rt.repo.all_teams(tid) if x["kind"] == "SYSTEM"]:
+        await rt.repo.batting_order_auto_assign(s_team["id"])
     if not t.get("system_announced"):
         teams = [x for x in await rt.repo.all_teams(tid) if x["kind"] == "SYSTEM"]
         await notify.set_dashboard(rt, t, m.system_draft_text(teams), kb.teams_ready(tid))
@@ -118,11 +125,67 @@ async def _fixtures(rt: IplRuntime, t: dict) -> bool:
 
 
 async def _simulate(rt: IplRuntime, t: dict, fx: dict, squads: dict[int, Squad]) -> dict:
-    rng, seed = match_rng(rt, t["id"], fx["id"], t.get("draft_started_at"))
+    tid = t["id"]
+    teams_list = await rt.repo.all_teams(tid)
+    teams_map = {x["id"]: x for x in teams_list}
+    h_team = teams_map.get(fx["home"])
+    a_team = teams_map.get(fx["away"])
+    
+    # Identify participating human managers
+    humans = [tm for tm in (h_team, a_team) if tm and tm["kind"] == "HUMAN" and tm.get("user_id")]
+
+    dm_msgs: dict[int, int] = {}  # user_id -> message_id
+    if humans:
+        stage_label = m.STAGE_LABEL.get(fx.get("stage", "LEAGUE"), "League").upper()
+        h_name = h_team["name"] if h_team else "Home"
+        a_name = a_team["name"] if a_team else "Away"
+        init_text = (f"🏏 <b>IPL DRAFT — {stage_label}</b>\n\n"
+                     f"<b>{m.esc(h_name)}</b> vs <b>{m.esc(a_name)}</b>\n\n"
+                     "🪙 <i>Toss underway & players taking the field…</i>")
+        for h in humans:
+            try:
+                sent = await notify.dm(rt, h["user_id"], init_text)
+                if sent:
+                    dm_msgs[h["user_id"]] = sent.message_id
+            except Exception:  # noqa: BLE001
+                pass
+
+    rng, seed = match_rng(rt, tid, fx["id"], t.get("draft_started_at"))
     out = simulate_match(squads[fx["home"]], squads[fx["away"]], rng, seed=seed)
+
+    # Live simulated progress update in DM
+    if humans and dm_msgs:
+        try:
+            inn1 = out.innings[0]
+            progress_text = (f"🏏 <b>IPL DRAFT — {fx.get('stage', 'LEAGUE').upper()}</b>\n\n"
+                             f"<b>{m.esc(out.team1.name)}</b>: {inn1.runs}/{inn1.wickets} ({m.overs_str(inn1.legal_balls)} ov)\n"
+                             f"🎯 <b>{m.esc(out.team2.name)}</b> chasing {inn1.runs + 1}…")
+            for h in humans:
+                mid = dm_msgs.get(h["user_id"])
+                if mid:
+                    await notify.edit_dm(rt, h["user_id"], mid, progress_text)
+            await asyncio.sleep(0.8)
+        except Exception:  # noqa: BLE001
+            pass
+
     res = await rt.repo.settle(fx["id"], to_payload(out, store_balls=rt.s.store_ball_events))
     if res.get("status") not in ("OK", "ALREADY"):
         raise RuntimeError(f"settle {fx['id']}: {res}")
+
+    # Deliver final match result card with buttons to each human user's DM
+    if humans and res.get("match_id"):
+        card = await rt.repo.match_card(res["match_id"])
+        if card:
+            btn = kb.dm_match_card_buttons(tid, res["match_id"])
+            for h in humans:
+                uid = h["user_id"]
+                result_text = m.dm_match_result(card, h["id"])
+                mid = dm_msgs.get(uid)
+                if mid:
+                    await notify.edit_dm(rt, uid, mid, result_text, btn)
+                else:
+                    await notify.dm(rt, uid, result_text, btn)
+
     return res
 
 
@@ -245,6 +308,7 @@ HANDLERS = {
 # ───────────────────────── loop / recovery ─────────────────────────
 async def tick(rt: IplRuntime) -> None:
     await draft_service.draft_tick(rt)
+    await batting_order_service.batting_order_tick(rt)
     for t in await rt.repo.by_states(ADVANCEABLE):
         if t["id"] not in rt.running:
             rt.ctx.spawn(advance(rt, t["id"]), name=f"ipl-advance-{t['id']}")

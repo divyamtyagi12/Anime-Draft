@@ -134,11 +134,11 @@ def test_awards_pick_the_right_players_and_ties_are_deterministic():
 
 
 # ───────────── draft engine / pool ─────────────
-def test_required_pool_formula_covers_16_teams_and_reservations():
-    assert draft_engine.required_pool(8, 0) == 21 * 8 == 168 or draft_engine.required_pool(8, 0) == 176
-    assert draft_engine.required_pool(8, 0) == max(16 * 11, 21 * 8)
-    assert draft_engine.required_pool(2, 20) == 10 * 11 + 20
-    assert draft_engine.required_pool(8, 20) >= 176
+def test_required_pool_formula_covers_13_teams_and_reservations():
+    assert draft_engine.required_pool(8, 0) == 21 * 8 == 168
+    assert draft_engine.required_pool(8, 0) == max((8 + draft_engine.SYSTEM_TEAMS) * 11, 21 * 8)
+    assert draft_engine.required_pool(2, 20) == 7 * 11 + 20
+    assert draft_engine.required_pool(8, 20) == 168 + 20
 
 
 def test_auto_pick_uses_only_public_info_and_builds_balanced_squads():
@@ -374,6 +374,6 @@ def test_settings_defaults_and_bounds(monkeypatch=None):
 
 def test_rules_text_mentions_key_rules():
     t = m.rules_text(45)
-    for s in ("11", "Eliminator", "Qualifier", "double round robin", "8 system franchises"):
+    for s in ("11", "Eliminator", "Qualifier", "double round robin", "5 system franchises"):
         assert s.lower() in t.lower(), s
     assert re.search(r"2.8 human", t)

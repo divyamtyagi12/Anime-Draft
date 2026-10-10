@@ -769,7 +769,7 @@ $$;
 --   (every human on their last round: 10H claimed + 11(H-1) held by others + 11 offered = 21H),
 --   plus a safety margin.
 create or replace function ipl_required_pool(p_humans int, p_margin int default 20) returns int
-language sql immutable as $$ select greatest((p_humans + 8) * 11, 21 * p_humans) + p_margin $$;
+language sql immutable as $$ select greatest((p_humans + 5) * 11, 21 * p_humans) + p_margin $$;
 
 create or replace function ipl_start_draft(p_tid bigint, p_margin int default 20)
 returns jsonb language plpgsql security definer set search_path = public, ipl_private as $$
@@ -1099,7 +1099,8 @@ language sql stable security definer set search_path = public, ipl_private as $$
       'players', (select coalesce(jsonb_agg(jsonb_build_object(
                     'id', p.id, 'name', p.display_name, 'role', p.role, 'bowling_type', p.bowling_type,
                     'batting_style', p.batting_style, 'slot', r.slot,
-                    'ratings', to_jsonb(tr) - 'tournament_id' - 'player_id') order by r.slot), '[]'::jsonb)
+                    'batting_order', r.batting_order,
+                    'ratings', to_jsonb(tr) - 'tournament_id' - 'player_id') order by coalesce(r.batting_order, r.slot)), '[]'::jsonb)
                     from ipl_team_rosters r
                     join ipl_players p on p.id = r.player_id
                     left join ipl_private.ipl_tournament_ratings tr
