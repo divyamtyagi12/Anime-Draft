@@ -147,3 +147,48 @@ def test_dm_match_result_and_buttons():
     assert "ipl:nx:1" in button_callbacks
     assert "ipl:tb:1" in button_callbacks
     assert "ipl:ts:1" in button_callbacks
+
+
+@pytest.mark.asyncio
+async def test_system_draft_ready_before_user_draft():
+    """Verify that system franchises are prepared and drafted before user draft."""
+    from unittest.mock import AsyncMock, MagicMock
+    from ipl_draft.services import system_service
+
+    rt = MagicMock()
+    rt.repo = MagicMock()
+    rt.repo.get = AsyncMock(return_value={"id": 10, "state": "DRAFTING"})
+    rt.repo.all_teams = AsyncMock(return_value=[
+        {"id": 1, "kind": "SYSTEM", "franchise_code": "RCB"},
+        {"id": 2, "kind": "SYSTEM", "franchise_code": "KKR"},
+        {"id": 3, "kind": "SYSTEM", "franchise_code": "MI"},
+        {"id": 4, "kind": "SYSTEM", "franchise_code": "CSK"},
+        {"id": 5, "kind": "SYSTEM", "franchise_code": "DC"},
+    ])
+    rt.repo.system_progress = AsyncMock(return_value=[
+        {"team_id": i, "picks": 11, "done": True} for i in range(1, 6)
+    ])
+    rt.repo.complete_system_teams = AsyncMock(return_value={"status": "OK"})
+    rt.repo.batting_order_auto_assign = AsyncMock(return_value=None)
+
+    await system_service.prepare_system_teams(rt, 10)
+    assert rt.repo.complete_system_teams.called
+    assert rt.repo.batting_order_auto_assign.call_count == 5
+
+
+@pytest.mark.asyncio
+async def test_create_fixtures_fallback_on_bad_team_count():
+    """Verify that repository.create_fixtures uses fallback when RPC returns BAD_TEAM_COUNT."""
+    from unittest.mock import AsyncMock, MagicMock
+    from ipl_draft.repository import IplRepo
+
+    db = MagicMock()
+    db.rpc = AsyncMock(return_value={"status": "BAD_TEAM_COUNT", "teams": 7})
+    db.exec = AsyncMock(return_value=[])
+    repo = IplRepo(db)
+    repo.all_teams = AsyncMock(return_value=[{"id": i} for i in range(1, 8)])
+
+    fixtures = [{"match_no": 1, "matchday": 1, "leg": 1, "home": 1, "away": 2}]
+    res = await repo.create_fixtures(10, fixtures)
+    assert res.get("status") == "OK"
+    assert res.get("fallback") is True

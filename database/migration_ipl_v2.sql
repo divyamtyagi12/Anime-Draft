@@ -232,3 +232,147 @@ language sql stable security definer set search_path = public, ipl_private as $$
                    where r.team_id = tm.id)) order by tm.team_no), '[]'::jsonb)
     from ipl_tournament_teams tm where tm.tournament_id = p_tid
 $$;
+
+-- 14. State Transitions: Flexible Transitions Between Drafting, System Generation, and Fixtures
+create or replace function ipl_valid_transition(p_old text, p_new text) returns boolean
+language sql immutable as $$
+  select case
+    when p_old = p_new then true
+    when p_old in ('COMPLETED','CANCELLED') then false
+    when p_new = 'CANCELLED' then true
+    when p_new = 'FAILED_RECOVERABLE' then p_old <> 'LOBBY'
+    when p_old = 'FAILED_RECOVERABLE' then p_new in ('DRAFTING','SYSTEM_TEAM_GENERATION','FIXTURE_GENERATION',
+         'LEAGUE_RUNNING','LEAGUE_COMPLETED','PLAYOFF_ELIMINATOR','PLAYOFF_QUALIFIER_1',
+         'PLAYOFF_QUALIFIER_2','PLAYOFF_FINAL')
+    when p_old = 'LOBBY'                  then p_new in ('DRAFTING', 'SYSTEM_TEAM_GENERATION')
+    when p_old = 'SYSTEM_TEAM_GENERATION' then p_new in ('DRAFTING', 'FIXTURE_GENERATION')
+    when p_old = 'DRAFTING'               then p_new in ('SYSTEM_TEAM_GENERATION', 'FIXTURE_GENERATION')
+    when p_old = 'FIXTURE_GENERATION'     then p_new = 'LEAGUE_RUNNING'
+    when p_old = 'LEAGUE_RUNNING'         then p_new = 'LEAGUE_COMPLETED'
+    when p_old = 'LEAGUE_COMPLETED'       then p_new = 'PLAYOFF_ELIMINATOR'
+    when p_old = 'PLAYOFF_ELIMINATOR'     then p_new = 'PLAYOFF_QUALIFIER_1'
+    when p_old = 'PLAYOFF_QUALIFIER_1'    then p_new = 'PLAYOFF_QUALIFIER_2'
+    when p_old = 'PLAYOFF_QUALIFIER_2'    then p_new = 'PLAYOFF_FINAL'
+    when p_old = 'PLAYOFF_FINAL'          then p_new = 'COMPLETED'
+    else false end
+$$;
+
+-- 15. Create Fixtures: Updated for 5 System Teams (7 to 13 Total Teams)
+create or replace function ipl_create_fixtures(p_tid bigint, p_fixtures jsonb) returns jsonb
+language plpgsql security definer set search_path = public, ipl_private as $$
+declare t ipl_tournaments%rowtype; n int; expected int; cnt int; f jsonb;
+begin
+  select * into t from ipl_tournaments where id = p_tid for update;
+  if not found then return jsonb_build_object('status', 'NOT_FOUND'); end if;
+  if t.state = 'LEAGUE_RUNNING' or exists (select 1 from ipl_fixtures where tournament_id = p_tid) then
+    return jsonb_build_object('status', 'OK', 'already', true);
+  end if;
+  if t.state <> 'FIXTURE_GENERATION' then return jsonb_build_object('status', 'BAD_STATE', 'state', t.state); end if;
+  select count(*) into n from ipl_tournament_teams where tournament_id = p_tid;
+  if n < 7 or n > 13 then return jsonb_build_object('status', 'BAD_TEAM_COUNT', 'teams', n); end if;
+  expected := n * (n - 1);
+  cnt := jsonb_array_length(p_fixtures);
+  if cnt <> expected then return jsonb_build_object('status', 'BAD_FIXTURE_COUNT', 'have', cnt, 'need', expected); end if;
+  for f in select * from jsonb_array_elements(p_fixtures) loop
+    insert into ipl_fixtures (tournament_id, stage, match_no, matchday, leg, home_team_id, away_team_id)
+    values (p_tid, 'LEAGUE', (f->>'match_no')::int, (f->>'matchday')::int, (f->>'leg')::smallint,
+            (f->>'home')::bigint, (f->>'away')::bigint);
+  end loop;
+  if (select count(distinct (least(home_team_id, away_team_id), greatest(home_team_id, away_team_id)))
+        from ipl_fixtures where tournament_id = p_tid) <> n * (n - 1) / 2 then
+    raise exception 'fixture list does not cover every pair';
+  end if;
+  insert into ipl_standings (tournament_id, team_id)
+    select p_tid, id from ipl_tournament_teams where tournament_id = p_tid on conflict do nothing;
+  update ipl_tournaments set state = 'LEAGUE_RUNNING', league_started_at = now() where id = p_tid;
+  return jsonb_build_object('status', 'OK', 'fixtures', cnt, 'teams', n);
+end $$;
+
+-- 16. System Teams Generation (Allow During DRAFTING or SYSTEM_TEAM_GENERATION)
+create or replace function ipl_begin_system_teams(p_tid bigint, p_franchises jsonb) returns jsonb
+language plpgsql security definer set search_path = public, ipl_private as $$
+declare t ipl_tournaments%rowtype; h int; f jsonb; i int := 0;
+begin
+  select * into t from ipl_tournaments where id = p_tid for update;
+  if not found then return jsonb_build_object('status', 'NOT_FOUND'); end if;
+  if t.state not in ('DRAFTING', 'SYSTEM_TEAM_GENERATION') then return jsonb_build_object('status', 'BAD_STATE', 'state', t.state); end if;
+  select count(*) into h from ipl_tournament_teams where tournament_id = p_tid and kind = 'HUMAN';
+  for f in select * from jsonb_array_elements(p_franchises) loop
+    i := i + 1;
+    insert into ipl_tournament_teams (tournament_id, team_no, kind, franchise_code, name, short_name)
+    values (p_tid, h + i, 'SYSTEM', f->>'code', f->>'name', f->>'code')
+    on conflict do nothing;
+  end loop;
+  return jsonb_build_object('status', 'OK', 'teams', i);
+end $$;
+
+-- 17. System Team Offers and Picks (Allow During DRAFTING or SYSTEM_TEAM_GENERATION)
+create or replace function ipl_open_offer(p_team_id bigint, p_force_roles jsonb default null)
+returns jsonb language plpgsql security definer set search_path = public, ipl_private as $$
+declare tm ipl_tournament_teams%rowtype; t ipl_tournaments%rowtype; o ipl_draft_offers%rowtype;
+        n int; ids uuid[]; extra uuid; dl timestamptz; oid bigint;
+begin
+  select * into tm from ipl_tournament_teams where id = p_team_id;
+  if not found then return jsonb_build_object('status', 'NO_TEAM'); end if;
+  select * into t from ipl_tournaments where id = tm.tournament_id for update;
+  if tm.kind = 'HUMAN' and t.state <> 'DRAFTING' then return jsonb_build_object('status', 'CLOSED'); end if;
+  if tm.kind = 'SYSTEM' and t.state not in ('DRAFTING', 'SYSTEM_TEAM_GENERATION') then return jsonb_build_object('status', 'CLOSED'); end if;
+
+  select * into o from ipl_draft_offers where team_id = p_team_id and status = 'OPEN';
+  if found then
+    return ipl_offer_json(o.id) || jsonb_build_object('status', 'OPEN', 'picks_done', o.round_no - 1);
+  end if;
+
+  select count(*) into n from ipl_draft_picks where team_id = p_team_id;
+  if n >= 11 then return jsonb_build_object('status', 'DONE', 'picks_done', n); end if;
+
+  select array_agg(id) into ids from (
+    select pl.player_id as id
+      from ipl_tournament_pool pl
+     where pl.tournament_id = t.id
+       and not exists (select 1 from ipl_team_rosters r where r.tournament_id = t.id and r.player_id = pl.player_id)
+       and not exists (select 1 from ipl_player_reservations x where x.tournament_id = t.id and x.player_id = pl.player_id)
+     order by random() limit 11) s;
+  if ids is null or cardinality(ids) < 11 then
+    return jsonb_build_object('status', 'POOL_EXHAUSTED', 'available', coalesce(cardinality(ids), 0));
+  end if;
+
+  if p_force_roles is not null and tm.kind = 'SYSTEM' and not exists (
+       select 1 from ipl_players p where p.id = any(ids) and p.role in (select jsonb_array_elements_text(p_force_roles))) then
+    select pl.player_id into extra
+      from ipl_tournament_pool pl join ipl_players p on p.id = pl.player_id
+     where pl.tournament_id = t.id and p.role in (select jsonb_array_elements_text(p_force_roles))
+       and not exists (select 1 from ipl_team_rosters r where r.tournament_id = t.id and r.player_id = pl.player_id)
+       and not exists (select 1 from ipl_player_reservations x where x.tournament_id = t.id and x.player_id = pl.player_id)
+     order by random() limit 1;
+    if extra is not null then ids[11] := extra; end if;
+  end if;
+
+  dl := now() + make_interval(secs => t.draft_seconds);
+  insert into ipl_draft_offers (tournament_id, team_id, round_no, deadline_at)
+  values (t.id, p_team_id, n + 1, dl) returning id into oid;
+  insert into ipl_draft_offer_candidates (offer_id, position, player_id)
+    select oid, row_number() over (order by random()), x from unnest(ids) x;
+  insert into ipl_player_reservations (tournament_id, player_id, team_id, offer_id, expires_at)
+    select t.id, x, p_team_id, oid, dl + interval '30 seconds' from unnest(ids) x;
+  return ipl_offer_json(oid) || jsonb_build_object('status', 'OPEN', 'picks_done', n);
+end $$;
+
+-- 18. Complete System Teams
+create or replace function ipl_complete_system_teams(p_tid bigint) returns jsonb
+language plpgsql security definer set search_path = public, ipl_private as $$
+declare t ipl_tournaments%rowtype; bad int;
+begin
+  select * into t from ipl_tournaments where id = p_tid for update;
+  if not found then return jsonb_build_object('status', 'NOT_FOUND'); end if;
+  if t.state = 'FIXTURE_GENERATION' then return jsonb_build_object('status', 'OK', 'already', true); end if;
+  if t.state not in ('DRAFTING', 'SYSTEM_TEAM_GENERATION') then return jsonb_build_object('status', 'BAD_STATE', 'state', t.state); end if;
+  select count(*) into bad from ipl_tournament_teams tm
+   where tm.tournament_id = p_tid and (select count(*) from ipl_team_rosters r where r.team_id = tm.id) <> 11;
+  if bad > 0 then return jsonb_build_object('status', 'INCOMPLETE', 'teams', bad); end if;
+  update ipl_tournament_teams set squad_complete = true where tournament_id = p_tid and not squad_complete;
+  if t.state = 'SYSTEM_TEAM_GENERATION' then
+    update ipl_tournaments set state = 'FIXTURE_GENERATION' where id = p_tid;
+  end if;
+  return jsonb_build_object('status', 'OK');
+end $$;

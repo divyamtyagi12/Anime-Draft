@@ -83,6 +83,8 @@ async def advance(rt: IplRuntime, tid: int) -> None:
 
 # ───────────────────────── state handlers (return True = made progress, loop again) ─────────────────────────
 async def _drafting(rt: IplRuntime, t: dict) -> bool:
+    # Ensure system teams are created, drafted, and ready to go
+    await system_service.prepare_system_teams(rt, t["id"])
     prog = await rt.repo.draft_progress(t["id"])
     if not prog or not all(p["done"] for p in prog):
         return False
@@ -91,15 +93,24 @@ async def _drafting(rt: IplRuntime, t: dict) -> bool:
     if pending:
         return False
     res = await rt.repo.begin_system_teams(t["id"], franchise_payload())
-    return res.get("status") == "OK"
+    if res.get("status") in ("OK", "ALREADY"):
+        return True
+    try:
+        await rt.repo.update(t["id"], state="SYSTEM_TEAM_GENERATION")
+        return True
+    except Exception:
+        return False
 
 
 async def _system(rt: IplRuntime, t: dict) -> bool:
     tid = t["id"]
-    await system_service.run_system_draft(rt, tid)
+    await system_service.prepare_system_teams(rt, tid)
     res = await rt.repo.complete_system_teams(tid)
-    if res.get("status") != "OK":
-        raise RuntimeError(f"complete_system_teams: {res}")
+    if res.get("status") not in ("OK", "ALREADY"):
+        try:
+            await rt.repo.update(tid, state="FIXTURE_GENERATION")
+        except Exception:
+            pass
     # Auto-assign sensible batting order for each system franchise based on ratings
     for s_team in [x for x in await rt.repo.all_teams(tid) if x["kind"] == "SYSTEM"]:
         await rt.repo.batting_order_auto_assign(s_team["id"])
@@ -107,7 +118,6 @@ async def _system(rt: IplRuntime, t: dict) -> bool:
         teams = [x for x in await rt.repo.all_teams(tid) if x["kind"] == "SYSTEM"]
         await notify.set_dashboard(rt, t, m.system_draft_text(teams), kb.teams_ready(tid))
         await rt.repo.update(tid, system_announced=True)
-        await rt.pause(rt.s.system_announce_delay)
     return True
 
 

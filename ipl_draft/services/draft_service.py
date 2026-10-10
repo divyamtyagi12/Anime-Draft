@@ -9,7 +9,7 @@ from .. import keyboards as kb
 from .. import messages as m
 from ..engine.draft_engine import auto_pick
 from ..runtime import IplRuntime
-from . import notification_service as notify
+from . import notification_service as notify, system_service
 
 log = logging.getLogger(__name__)
 PROGRESS_MIN_GAP = 8.0       # seconds between edits of the group progress message (group rate limits)
@@ -17,6 +17,10 @@ PROGRESS_MIN_GAP = 8.0       # seconds between edits of the group progress messa
 
 # ───────────────────────── offers ─────────────────────────
 async def kickoff(rt: IplRuntime, tid: int) -> None:
+    try:
+        await system_service.prepare_system_teams(rt, tid)
+    except Exception:
+        log.exception("Error preparing system teams at kickoff")
     await update_progress(rt, tid, force=True)
     await offers_for_teams(rt, tid)
 

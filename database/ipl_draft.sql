@@ -469,9 +469,9 @@ language sql immutable as $$
     when p_old = 'FAILED_RECOVERABLE' then p_new in ('DRAFTING','SYSTEM_TEAM_GENERATION','FIXTURE_GENERATION',
          'LEAGUE_RUNNING','LEAGUE_COMPLETED','PLAYOFF_ELIMINATOR','PLAYOFF_QUALIFIER_1',
          'PLAYOFF_QUALIFIER_2','PLAYOFF_FINAL')
-    when p_old = 'LOBBY'                  then p_new = 'DRAFTING'
-    when p_old = 'DRAFTING'               then p_new = 'SYSTEM_TEAM_GENERATION'
-    when p_old = 'SYSTEM_TEAM_GENERATION' then p_new = 'FIXTURE_GENERATION'
+    when p_old = 'LOBBY'                  then p_new in ('DRAFTING', 'SYSTEM_TEAM_GENERATION')
+    when p_old = 'SYSTEM_TEAM_GENERATION' then p_new in ('DRAFTING', 'FIXTURE_GENERATION')
+    when p_old = 'DRAFTING'               then p_new in ('SYSTEM_TEAM_GENERATION', 'FIXTURE_GENERATION')
     when p_old = 'FIXTURE_GENERATION'     then p_new = 'LEAGUE_RUNNING'
     when p_old = 'LEAGUE_RUNNING'         then p_new = 'LEAGUE_COMPLETED'
     when p_old = 'LEAGUE_COMPLETED'       then p_new = 'PLAYOFF_ELIMINATOR'
@@ -832,7 +832,7 @@ begin
   -- the tournament row lock serialises offer generation: two managers can never be offered the same player
   select * into t from ipl_tournaments where id = tm.tournament_id for update;
   if tm.kind = 'HUMAN' and t.state <> 'DRAFTING' then return jsonb_build_object('status', 'CLOSED'); end if;
-  if tm.kind = 'SYSTEM' and t.state <> 'SYSTEM_TEAM_GENERATION' then return jsonb_build_object('status', 'CLOSED'); end if;
+  if tm.kind = 'SYSTEM' and t.state not in ('DRAFTING', 'SYSTEM_TEAM_GENERATION') then return jsonb_build_object('status', 'CLOSED'); end if;
 
   select * into o from ipl_draft_offers where team_id = p_team_id and status = 'OPEN';
   if found then
@@ -905,7 +905,7 @@ begin
   if o.status <> 'OPEN' then
     return jsonb_build_object('status', 'ALREADY', 'offer_status', o.status, 'picked_player_id', o.picked_player_id);
   end if;
-  if (tm.kind = 'HUMAN' and t.state <> 'DRAFTING') or (tm.kind = 'SYSTEM' and t.state <> 'SYSTEM_TEAM_GENERATION') then
+  if (tm.kind = 'HUMAN' and t.state <> 'DRAFTING') or (tm.kind = 'SYSTEM' and t.state not in ('DRAFTING', 'SYSTEM_TEAM_GENERATION')) then
     return jsonb_build_object('status', 'CLOSED');
   end if;
   if p_mode = 'USER' and now() > o.deadline_at + make_interval(secs => p_grace_seconds) then
@@ -1036,10 +1036,7 @@ begin
   select * into t from ipl_tournaments where id = p_tid for update;
   if not found then return jsonb_build_object('status', 'NOT_FOUND'); end if;
   if t.state = 'SYSTEM_TEAM_GENERATION' then return jsonb_build_object('status', 'OK', 'already', true); end if;
-  if t.state <> 'DRAFTING' then return jsonb_build_object('status', 'BAD_STATE', 'state', t.state); end if;
-  if exists (select 1 from ipl_tournament_teams where tournament_id = p_tid and kind = 'HUMAN' and not squad_complete) then
-    return jsonb_build_object('status', 'HUMANS_NOT_DONE');
-  end if;
+  if t.state not in ('DRAFTING', 'SYSTEM_TEAM_GENERATION') then return jsonb_build_object('status', 'BAD_STATE', 'state', t.state); end if;
   select count(*) into h from ipl_tournament_teams where tournament_id = p_tid and kind = 'HUMAN';
   for f in select * from jsonb_array_elements(p_franchises) loop
     i := i + 1;
@@ -1047,7 +1044,6 @@ begin
     values (p_tid, h + i, 'SYSTEM', f->>'code', f->>'name', f->>'code')
     on conflict do nothing;
   end loop;
-  update ipl_tournaments set state = 'SYSTEM_TEAM_GENERATION' where id = p_tid;
   return jsonb_build_object('status', 'OK', 'teams', i);
 end $$;
 
@@ -1082,12 +1078,14 @@ begin
   select * into t from ipl_tournaments where id = p_tid for update;
   if not found then return jsonb_build_object('status', 'NOT_FOUND'); end if;
   if t.state = 'FIXTURE_GENERATION' then return jsonb_build_object('status', 'OK', 'already', true); end if;
-  if t.state <> 'SYSTEM_TEAM_GENERATION' then return jsonb_build_object('status', 'BAD_STATE', 'state', t.state); end if;
+  if t.state not in ('DRAFTING', 'SYSTEM_TEAM_GENERATION') then return jsonb_build_object('status', 'BAD_STATE', 'state', t.state); end if;
   select count(*) into bad from ipl_tournament_teams tm
    where tm.tournament_id = p_tid and (select count(*) from ipl_team_rosters r where r.team_id = tm.id) <> 11;
   if bad > 0 then return jsonb_build_object('status', 'INCOMPLETE', 'teams', bad); end if;
   update ipl_tournament_teams set squad_complete = true where tournament_id = p_tid and not squad_complete;
-  update ipl_tournaments set state = 'FIXTURE_GENERATION' where id = p_tid;
+  if t.state = 'SYSTEM_TEAM_GENERATION' then
+    update ipl_tournaments set state = 'FIXTURE_GENERATION' where id = p_tid;
+  end if;
   return jsonb_build_object('status', 'OK');
 end $$;
 
@@ -1121,7 +1119,7 @@ begin
   end if;
   if t.state <> 'FIXTURE_GENERATION' then return jsonb_build_object('status', 'BAD_STATE', 'state', t.state); end if;
   select count(*) into n from ipl_tournament_teams where tournament_id = p_tid;
-  if n < 10 or n > 16 then return jsonb_build_object('status', 'BAD_TEAM_COUNT', 'teams', n); end if;
+  if n < 7 or n > 13 then return jsonb_build_object('status', 'BAD_TEAM_COUNT', 'teams', n); end if;
   expected := n * (n - 1);
   cnt := jsonb_array_length(p_fixtures);
   if cnt <> expected then return jsonb_build_object('status', 'BAD_FIXTURE_COUNT', 'have', cnt, 'need', expected); end if;
