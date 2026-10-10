@@ -33,6 +33,7 @@ def menu_markup() -> InlineKeyboardMarkup:
         [Btn("🌍 GLOBAL LEADERBOARD", callback_data="lbd:g:0")],
         [Btn("👥 GROUP LEADERBOARD", callback_data="lbd:pick")],
         [Btn("🔢 NUMBER WARS", callback_data="nwl:g")],
+        [Btn("🏏 IPL DRAFT", callback_data="ipl:lb:g:0")],
         [Btn("🏠 BACK", callback_data="lbd:home")],
     ])
 

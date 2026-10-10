@@ -1,0 +1,405 @@
+"""All IPL Draft user-facing text (Telegram HTML). No ratings are ever rendered here — only names, roles, nationality,
+real scorecard numbers and standings."""
+from __future__ import annotations
+
+import html
+from datetime import datetime, timezone
+from typing import Any, Mapping, Sequence
+
+from .engine.playoffs import STAGE_LABEL
+from .engine.standings import overs_str
+from .engine.team_builder import FRANCHISE_EMOJI
+
+LINE = "━━━━━━━━━━━━━━━━"
+ROLE_EMOJI = {"BAT": "🏏", "BOWL": "🎯", "AR": "⚡", "WK": "🧤"}
+ROLE_NAME = {"BAT": "Batter", "BOWL": "Bowler", "AR": "All-rounder", "WK": "Wicketkeeper"}
+MEDALS = {1: "🥇", 2: "🥈", 3: "🥉", 4: "🏅"}
+
+
+def esc(x: Any) -> str:
+    return html.escape(str(x), quote=False)
+
+
+def player_line(p: Mapping, with_nat: bool = True) -> str:
+    extra = f" · {esc(p['nationality'])}" if with_nat and p.get("nationality") else ""
+    return f"{esc(p['name'])} — {ROLE_EMOJI.get(p['role'], '🏏')} {ROLE_NAME.get(p['role'], p['role'])}{extra}"
+
+
+def team_badge(t: Mapping) -> str:
+    if t.get("kind") == "SYSTEM":
+        return FRANCHISE_EMOJI.get(t.get("franchise_code") or t.get("short_name"), "🤖")
+    return "🔴"
+
+
+def fmt_score(inn: Mapping) -> str:
+    return f"{inn['runs']}/{inn['wickets']} ({overs_str(inn['legal_balls'])} ov)"
+
+
+def clock(ts: str | None) -> str:
+    if not ts:
+        return ""
+    try:
+        d = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(timezone.utc)
+        return d.strftime("%H:%M:%S UTC")
+    except ValueError:
+        return ""
+
+
+# ───────────────────────── lobby ─────────────────────────
+def lobby_text(t: Mapping, teams: Sequence[Mapping]) -> str:
+    n, mx = len(teams), t["max_humans"]
+    rows = []
+    for i in range(mx):
+        rows.append(f"{i + 1}. {esc(teams[i]['owner_name'])}" if i < n else f"{i + 1}. <i>Waiting...</i>")
+    status = {"LOBBY": "", "CANCELLED": "\n\n❌ <b>Cancelled</b>"}.get(t["state"], "\n\n🔒 <b>Lobby closed — the draft has started!</b>")
+    return (
+        "🏏 <b>IPL DRAFT</b>\n\n🏆 <b>MULTIPLAYER CRICKET TOURNAMENT</b>\n\n"
+        f"👥 Human Players: <b>{n}/{mx}</b>\n🤖 System Teams: <b>8</b>\n\n"
+        "🏏 Squad Size: <b>11 Players</b>\n\n🎲 Draft System:\n<b>11 Random Choices Per Pick</b>\n\n"
+        "🏆 Tournament:\n<b>Double Round Robin + IPL Playoffs</b>\n\n"
+        f"{LINE}\n\n👥 <b>JOINED PLAYERS</b>\n\n" + "\n".join(rows) + f"\n\n{LINE}"
+        f"\n<i>Minimum {t['min_humans']} players · only group admins can force-start</i>" + status)
+
+
+def rules_text(draft_seconds: int = 45) -> str:
+    return (
+        "📖 <b>IPL DRAFT — RULES</b>\n\n"
+        "👥 2–8 human managers + <b>8 system franchises</b> (MI, CSK, RCB, KKR, RR, PBKS, GT, LSG).\n\n"
+        f"🎲 <b>Draft (in your DM):</b> 11 rounds. Each round you get <b>11 random IPL cricketers</b> — pick exactly "
+        f"<b>one</b> ({draft_seconds}s; if you're slow one is picked for you). No role restrictions: all batters is allowed… "
+        "but the match engine will notice.\n\n"
+        "🔒 Nobody else can be offered the cricketers you're choosing from, and nobody can draft the same player twice.\n\n"
+        "🏟 <b>League:</b> double round robin — every team plays every other team twice. Win = 2 pts, no result = 1. "
+        "Table: points → net run rate → wins.\n\n"
+        "🔥 <b>Playoffs (top 4):</b> Eliminator (3v4) → Qualifier 1 (1v2) → Qualifier 2 → 🏆 Final. "
+        "A system franchise can win it too!\n\n"
+        "🧠 Every match is a real ball-by-ball T20 simulation of the two squads — ratings stay hidden, scorecards are real.\n\n"
+        "🏅 Awards: Orange Cap, Purple Cap, Player of the Tournament, Most Sixes, Best Innings.")
+
+
+DM_PROMPT = "⚠️ Please start the bot privately before joining IPL Draft."
+
+
+# ───────────────────────── draft ─────────────────────────
+def offer_text(team: Mapping, offer: Mapping, picks_done: int, seconds: int) -> str:
+    cands = offer["candidates"]
+    lines = [f"{c['pos']}. {player_line(c['player'])}" for c in cands]
+    dl = clock(offer.get("deadline_at"))
+    return (
+        "🏏 <b>IPL DRAFT</b>\n\n"
+        f"🎲 <b>DRAFT ROUND {offer['round_no']}/11</b>\n\n"
+        f"👤 Team: <b>{esc(team['name'])}</b>\n\n🏏 Players Selected: <b>{picks_done}/11</b>\n\n{LINE}\n\n"
+        "🎯 <b>CHOOSE ONE PLAYER</b>\n\n" + "\n".join(lines) + f"\n\n{LINE}\n"
+        f"⏱ <b>{seconds} seconds</b> — deadline {dl}\n<i>If time runs out, one is picked for you.</i>")
+
+
+def confirm_text(player: Mapping) -> str:
+    return f"🏏 <b>PLAYER SELECTED</b>\n\n<b>{esc(player['name'])}</b>\n{ROLE_EMOJI.get(player['role'], '')} {ROLE_NAME.get(player['role'], '')} · {esc(player.get('nationality', ''))}\n\nAdd to your squad?"
+
+
+def drafted_text(player: Mapping, roster: Sequence[Mapping], auto: bool = False) -> str:
+    rows = "\n".join(f"{i + 1}. {esc(p['name'])}" for i, p in enumerate(roster))
+    head = "⏱ <b>TIME UP — PLAYER AUTO-DRAFTED</b>" if auto else "✅ <b>PLAYER DRAFTED!</b>"
+    tail = "\n\n🎲 Generating your next 11 options..." if len(roster) < 11 else ""
+    return (f"{head}\n\n🏏 <b>{esc(player['name'])}</b>\n\n📋 Squad Progress: <b>{len(roster)}/11</b>\n\n"
+            f"<b>YOUR TEAM:</b>\n\n{rows}{tail}")
+
+
+def my_team_text(team: Mapping, players: Sequence[Mapping], complete: bool) -> str:
+    rows = "\n".join(f"{i + 1}. {player_line(p)}" for i, p in enumerate(players)) or "<i>No players yet.</i>"
+    return f"📋 <b>{esc(team['name'])}</b> — {len(players)}/11\n\n{rows}" + ("" if complete else "\n\n✍️ Draft in progress…")
+
+
+def draft_complete_text(team: Mapping, players: Sequence[Mapping]) -> str:
+    rows = "\n".join(f"{i + 1}. {esc(p['name'])}" for i, p in enumerate(players))
+    return (f"🏆 <b>IPL DRAFT COMPLETE!</b>\n\n👑 YOUR TEAM: <b>{esc(team['name'].upper())}</b>\n\n{rows}\n\n{LINE}\n\n"
+            "✅ SQUAD COMPLETE: <b>11/11</b>\n\n🎯 TEAM STATUS: <b>READY</b>\n\n⏳ Waiting for other players...")
+
+
+def draft_progress_text(rows: Sequence[Mapping]) -> str:
+    out = ["🏏 <b>IPL DRAFT — DRAFTING IN PROGRESS</b>", "", "Everyone is picking in their DMs (squads stay secret until the draft ends).", ""]
+    for r in rows:
+        mark = "✅" if r["done"] else "⏳"
+        auto = " 🤖" if r.get("auto") and not r["done"] else ""
+        out.append(f"{mark} {esc(r['name'])} — {r['picks']}/11{auto}")
+    return "\n".join(out)
+
+
+def system_draft_text(system_teams: Sequence[Mapping]) -> str:
+    rows = "\n".join(f"✅ {t['short_name']} — READY" for t in system_teams)
+    return f"🤖 <b>SYSTEM DRAFT COMPLETE!</b>\n\n{rows}\n\n🏏 <b>ALL TEAMS READY!</b>"
+
+
+def all_teams_page(rosters: Sequence[Mapping], page: int, per_page: int = 4) -> tuple[str, int]:
+    pages = max(1, -(-len(rosters) // per_page))
+    page = max(0, min(page, pages - 1))
+    chunk = rosters[page * per_page:(page + 1) * per_page]
+    blocks = []
+    for r in chunk:
+        t = r["team"]
+        pl = "\n".join(f"  {i + 1}. {esc(p['name'])} <i>({ROLE_NAME[p['role']][:3]})</i>" for i, p in enumerate(r["players"]))
+        blocks.append(f"{team_badge(t)} <b>{esc(t['name'])}</b>\n{pl}")
+    return f"📋 <b>ALL TEAMS</b> — page {page + 1}/{pages}\n\n" + "\n\n".join(blocks), pages
+
+
+# ───────────────────────── tables / dashboard ─────────────────────────
+def _tname(r: Mapping, w: int = 9) -> str:
+    return (r["short_name"] if r["kind"] == "SYSTEM" else r["name"])[:w]
+
+
+def points_table(rows: Sequence[Mapping], title: str = "IPL DRAFT POINTS TABLE", qualified: bool = True) -> str:
+    out = [f"🏆 <b>{title}</b>", "", "<pre>POS TEAM       P  W  L PTS   NRR"]
+    for i, r in enumerate(rows, 1):
+        out.append(f"{i:>2}. {_tname(r, 9):<9} {r['played']:>2} {r['won']:>2} {r['lost']:>2} {r['points']:>3} {float(r['nrr']):>+6.2f}")
+        if i == 4 and len(rows) > 4:
+            out.append("─" * 31)
+    out.append("</pre>")
+    if qualified and rows and rows[0]["played"] >= 0:
+        out.append("✅ Top 4 qualify for the playoffs")
+    return "\n".join(out)
+
+
+def progress_bar(done: int, total: int, width: int = 12) -> str:
+    n = 0 if total == 0 else round(width * done / total)
+    return "█" * n + "░" * (width - n)
+
+
+def dashboard_text(t: Mapping, prog: Mapping, standings: Sequence[Mapping], human_lines: Sequence[str]) -> str:
+    total, done = prog["total"], prog["done"]
+    md = prog["completed_matchdays"]
+    head = ("🏏 <b>IPL DRAFT — LEAGUE STAGE</b>\n\n"
+            f"📅 Matchday <b>{md}/{prog['matchdays']}</b>   ·   Matches <b>{done}/{total}</b>\n"
+            f"{progress_bar(done, total)} {0 if not total else round(100 * done / total)}%\n\n")
+    top = standings[:4]
+    tbl = "\n".join(f"{MEDALS.get(i + 1, '')} {_tname(r, 14)} — {r['points']} pts · NRR {float(r['nrr']):+.2f}"
+                    for i, r in enumerate(top))
+    hl = ("\n\n🔴 <b>Latest results — human teams</b>\n" + "\n".join(human_lines)) if human_lines else ""
+    return head + "<b>Top 4 right now</b>\n" + tbl + hl
+
+
+def matchday_summary(md: int, cards: Sequence[Mapping]) -> str:
+    out = [f"📅 <b>MATCHDAY {md} — RESULTS</b>", ""]
+    for c in cards:
+        out.append(result_line(c))
+    return "\n".join(out)
+
+
+def result_line(c: Mapping) -> str:
+    t1, t2 = c["team1"], c["team2"]
+    inn = [i for i in c["innings"] if not i["is_super_over"]]
+    s1 = f"{inn[0]['runs']}/{inn[0]['wickets']}" if inn else "-"
+    s2 = f"{inn[1]['runs']}/{inn[1]['wickets']}" if len(inn) > 1 else "-"
+    win = t1 if c["winner_team_id"] == t1["id"] else t2 if c["winner_team_id"] == t2["id"] else None
+    w = f" → <b>{esc(_tname_t(win))}</b>" if win else " → no result"
+    return f"#{c['match_no']} {esc(_tname_t(t1))} {s1} v {esc(_tname_t(t2))} {s2}{w}"
+
+
+def _tname_t(t: Mapping, w: int = 12) -> str:
+    return (t["short_name"] if t["kind"] == "SYSTEM" else t["name"])[:w]
+
+
+def human_result_line(c: Mapping, human_ids: set[int]) -> str | None:
+    t1, t2 = c["team1"], c["team2"]
+    if t1["id"] not in human_ids and t2["id"] not in human_ids:
+        return None
+    return result_line(c)
+
+
+# ───────────────────────── match cards ─────────────────────────
+def result_sentence(c: Mapping) -> str:
+    t1, t2 = c["team1"], c["team2"]
+    win = t1 if c["winner_team_id"] == t1["id"] else t2 if c["winner_team_id"] == t2["id"] else None
+    if not win:
+        return "NO RESULT"
+    n = esc(win["name"].upper())
+    if c["result_type"] == "RUNS":
+        return f"{n} WINS BY {c['margin']} RUN{'S' if c['margin'] != 1 else ''}!"
+    if c["result_type"] == "WICKETS":
+        return f"{n} WINS BY {c['margin']} WICKET{'S' if c['margin'] != 1 else ''}!"
+    return f"{n} WINS THE SUPER OVER!"
+
+
+def match_card_text(c: Mapping, header: str | None = None) -> str:
+    t1, t2 = c["team1"], c["team2"]
+    inn = [i for i in c["innings"] if not i["is_super_over"]]
+    s = {c["team1"]["id"]: fmt_score(inn[0]) if inn else "", c["team2"]["id"]: fmt_score(inn[1]) if len(inn) > 1 else ""}
+    pom, bb = c.get("pom"), c.get("best_bowler")
+    head = header or f"🏏 <b>IPL DRAFT — {'MATCH ' + str(c['match_no']) if c['stage'] == 'LEAGUE' else esc(STAGE_LABEL[c['stage']].upper())}</b>"
+    text = (f"{head}\n\n{team_badge(t1)} <b>{esc(t1['name'].upper())}</b>\n{s[t1['id']]}\n\nVS\n\n"
+            f"{team_badge(t2)} <b>{esc(t2['name'].upper())}</b>\n{s[t2['id']]}\n\n{LINE}\n\n🏆 <b>{result_sentence(c)}</b>")
+    if c.get("super_overs"):
+        so = [i for i in c["innings"] if i["is_super_over"]]
+        if len(so) >= 2:
+            text += f"\n<i>Super Over: {so[-2]['runs']}/{so[-2]['wickets']} v {so[-1]['runs']}/{so[-1]['wickets']}</i>"
+    if pom:
+        text += f"\n\n⭐ <b>PLAYER OF THE MATCH</b>\n{esc(pom['name'])}"
+        if pom["balls"]:
+            text += f"\n{pom['runs']} Runs ({pom['balls']} Balls)"
+        if pom["wickets"]:
+            text += f"\n{pom['wickets']}/{pom['bowl_runs']}"
+    if bb and bb["wickets"]:
+        text += f"\n\n🎯 <b>BEST BOWLER</b>\n{esc(bb['name'])}\n{bb['wickets']}/{bb['runs']}"
+    return text + f"\n\n{LINE}"
+
+
+def scorecard_pages(sc: Mapping) -> list[str]:
+    pages = [match_card_text(sc)]
+    for inn in sc["innings_detail"]:
+        tag = "SUPER OVER " if inn["is_super_over"] else ""
+        bt = inn["batting_team"]
+        lines = [f"📊 <b>{tag}INNINGS {inn['innings_no'] if not inn['is_super_over'] else ''} — {esc(bt['name'].upper())}</b>",
+                 f"<b>{inn['runs']}/{inn['wickets']}</b> ({overs_str(inn['legal_balls'])} ov)", "", "<b>BATTING</b>", "<pre>Player          R   B  4s 6s   SR"]
+        for b in inn["batting"]:
+            if not b["did_bat"]:
+                continue
+            sr = f"{b['runs'] * 100 / b['balls']:.0f}" if b["balls"] else "-"
+            mark = "" if b["out"] else "*"
+            lines.append(f"{b['name'][:14]:<14} {str(b['runs']) + mark:>4} {b['balls']:>3} {b['fours']:>3}{b['sixes']:>3} {sr:>4}")
+        lines.append("</pre>")
+        ex = inn["extras"]
+        total_ex = sum(ex.values())
+        lines.append(f"Extras: <b>{total_ex}</b> (w {ex.get('wides', 0)}, nb {ex.get('noballs', 0)}, b {ex.get('byes', 0)}, lb {ex.get('legbyes', 0)})")
+        dnb = [b["name"] for b in inn["batting"] if not b["did_bat"]]
+        if dnb:
+            lines.append("Did not bat: " + esc(", ".join(dnb)))
+        fow = inn.get("fall_of_wickets") or []
+        if fow:
+            lines.append("\n<b>FALL OF WICKETS</b>\n" + esc(", ".join(f"{f['score']}-{f['wkt']} ({f['player']}, {f['over']})" for f in fow)))
+        lines += ["", "<b>BOWLING</b>", "<pre>Player          O   R   W  Econ"]
+        for w in inn["bowling"]:
+            ov = overs_str(w["legal_balls"])
+            econ = f"{w['runs'] * 6 / w['legal_balls']:.2f}" if w["legal_balls"] else "-"
+            lines.append(f"{w['name'][:14]:<14} {ov:>4} {w['runs']:>3} {w['wickets']:>3} {econ:>5}")
+        lines.append("</pre>")
+        pages.append("\n".join(lines))
+    return pages
+
+
+def fixtures_page_text(data: Mapping, page: int, per_page: int) -> str:
+    pages = max(1, -(-data["total"] // per_page))
+    out = [f"📅 <b>FIXTURES</b> — page {page + 1}/{pages}", ""]
+    for f in data["rows"]:
+        tag = "" if f["stage"] == "LEAGUE" else f" [{STAGE_LABEL[f['stage']]}]"
+        st = {"COMPLETED": f"✅ {esc(f['winner_short'] or 'NR')}", "CLAIMED": "⏳", "SCHEDULED": "·"}[f["status"]]
+        out.append(f"#{f['match_no']} {esc(f['home'])} v {esc(f['away'])}{tag}  {st}")
+    return "\n".join(out)
+
+
+def history_page_text(data: Mapping, page: int, per_page: int) -> str:
+    pages = max(1, -(-data["total"] // per_page))
+    out = [f"📋 <b>MATCH HISTORY</b> — page {page + 1}/{pages}", ""]
+    out += [result_line(c) for c in data["rows"]] or ["<i>No matches played yet.</i>"]
+    return "\n".join(out)
+
+
+def bracket_text(bracket: Sequence[Mapping], standings: Sequence[Mapping]) -> str:
+    out = ["🔥 <b>IPL PLAYOFF BRACKET</b>", ""]
+    names = {"ELIMINATOR": "🔥 ELIMINATOR", "QUALIFIER_1": "🏆 QUALIFIER 1", "QUALIFIER_2": "⚔️ QUALIFIER 2", "FINAL": "👑 GRAND FINAL"}
+    src = {"RANK1": "Rank 1", "RANK2": "Rank 2", "RANK3": "Rank 3", "RANK4": "Rank 4", "LOSER_Q1": "Loser Q1",
+           "WINNER_ELIMINATOR": "Winner Eliminator", "WINNER_Q1": "Winner Q1", "WINNER_Q2": "Winner Q2"}
+    for b in bracket:
+        h = esc(b["home"]["name"]) if b.get("home") else src[b["home_source"]]
+        a = esc(b["away"]["name"]) if b.get("away") else src[b["away_source"]]
+        status = "✅" if b.get("status") == "COMPLETED" else ""
+        out.append(f"{names[b['stage']]} {status}\n   {h}\n   vs {a}")
+        if b.get("winner_team_id") and b.get("home") and b.get("away"):
+            w = b["home"] if b["winner_team_id"] == b["home"]["id"] else b["away"]
+            out.append(f"   🏆 {esc(w['name'])}")
+        out.append("")
+    return "\n".join(out)
+
+
+def league_complete_text(rows: Sequence[Mapping]) -> str:
+    top = rows[:4]
+    names = ["Rank 1", "Rank 2", "Rank 3", "Rank 4"]
+    lines = [f"{MEDALS[i + 1]} {names[i]}: <b>{esc(r['name'].upper())}</b>" for i, r in enumerate(top)]
+    return "🏆 <b>LEAGUE STAGE COMPLETED!</b>\n\n" + "\n".join(lines) + f"\n\n{LINE}\n\n🔥 <b>TOP 4 QUALIFIED!</b>\n\n🏆 <b>IPL PLAYOFFS BEGIN!</b>"
+
+
+def playoff_intro(stage: str, home: Mapping, away: Mapping) -> str:
+    adv = {"ELIMINATOR": "Winner → Qualifier 2\nLoser → Eliminated", "QUALIFIER_1": "Winner → FINAL\nLoser → Qualifier 2",
+           "QUALIFIER_2": "Winner → FINAL\nLoser → Eliminated", "FINAL": "Winner → IPL DRAFT CHAMPION"}[stage]
+    title = {"ELIMINATOR": "🔥 ELIMINATOR", "QUALIFIER_1": "🏆 QUALIFIER 1", "QUALIFIER_2": "⚔️ QUALIFIER 2", "FINAL": "🏆 IPL DRAFT GRAND FINAL!"}[stage]
+    return f"<b>{title}</b>\n\n{team_badge(home)} {esc(home['name'].upper())}\nVS\n{team_badge(away)} {esc(away['name'].upper())}\n\n{adv}\n\n<i>Simulating…</i>"
+
+
+def champion_text(card: Mapping, champ: Mapping, owner: str | None) -> str:
+    own = f"\n\n👤 OWNER: <b>{esc(owner.upper())}</b>" if owner else "\n\n🤖 <i>System franchise</i>"
+    return (match_card_text(card, "🏆 <b>IPL DRAFT GRAND FINAL!</b>") + f"\n\n👑 <b>IPL DRAFT CHAMPION!</b>\n\n🏆 <b>{esc(champ['name'].upper())}</b>{own}\n\n{LINE}")
+
+
+AWARD_TITLES = {"CHAMPION": "👑 CHAMPION", "RUNNER_UP": "🥈 RUNNER-UP", "ORANGE_CAP": "🏏 ORANGE CAP",
+                "PURPLE_CAP": "🎯 PURPLE CAP", "PLAYER_OF_TOURNAMENT": "⭐ PLAYER OF THE TOURNAMENT",
+                "MOST_SIXES": "💥 MOST SIXES", "BEST_INNINGS": "🔥 BEST INDIVIDUAL INNINGS"}
+
+
+def awards_text(awards: Sequence[Mapping]) -> str:
+    by = {a["award"]: a for a in awards}
+    out = ["🏆 <b>IPL DRAFT AWARDS</b>", ""]
+    for k, title in AWARD_TITLES.items():
+        a = by.get(k)
+        if not a:
+            continue
+        who = a.get("player") or a.get("team") or ""
+        detail = f"\n{esc(a['value_text'])}" if a.get("player") and a.get("value_text") else ""
+        team = f" <i>({esc(a['team'])})</i>" if a.get("player") and a.get("team") else ""
+        out.append(f"{title}\n<b>{esc(who)}</b>{team}{detail}\n")
+    return "\n".join(out)
+
+
+# ───────────────────────── leaderboards / stats ─────────────────────────
+def _name(r: Mapping) -> str:
+    return esc(r.get("first_name") or r.get("username") or f"User {r['user_id']}")
+
+
+def leaderboard_menu_text() -> str:
+    return "🏏 <b>IPL DRAFT LEADERBOARD</b>\n\nRanked by championships, then runner-ups, then league wins.\nOnly human managers appear here."
+
+
+def leaderboard_text(data: Mapping, title: str, page: int, size: int) -> str:
+    rows = data.get("rows") or []
+    out = [f"🏏 <b>IPL DRAFT — {esc(title)}</b>", ""]
+    if not rows:
+        out.append("<i>No finished tournaments yet.</i>")
+    for r in rows:
+        medal = MEDALS.get(r["rnk"], f"{r['rnk']}.")
+        wr = f"{100 * r['championships'] / r['tournaments_played']:.0f}%" if r["tournaments_played"] else "0%"
+        out.append(f"{medal} <b>{_name(r)}</b> — 🏆 {r['championships']} · 🥈 {r['runner_ups']} · {r['tournaments_played']} played ({wr} titles)")
+    me = data.get("me")
+    if me and not any(r["user_id"] == me["user_id"] for r in rows):
+        out += ["", f"You: #{me['rnk']} — 🏆 {me['championships']} · 🥈 {me['runner_ups']}"]
+    out.append(f"\n<i>Page {page + 1}/{max(1, -(-int(data.get('total') or 0) // size))}</i>")
+    return "\n".join(out)
+
+
+def user_stats_text(name: str, st: Mapping | None, scope: str = "Global") -> str:
+    if not st:
+        return f"📊 <b>IPL DRAFT — {esc(scope)} stats for {esc(name)}</b>\n\n<i>No finished tournaments yet. Join one with /start in a group!</i>"
+    played = st["league_played"]
+    wpct = f"{100 * st['league_wins'] / played:.0f}%" if played else "0%"
+    tpct = f"{100 * st['championships'] / st['tournaments_played']:.0f}%" if st["tournaments_played"] else "0%"
+    return (f"📊 <b>IPL DRAFT — {esc(scope)} stats for {esc(name)}</b>\n\n"
+            f"🏟 Tournaments played: <b>{st['tournaments_played']}</b>\n🏆 Championships: <b>{st['championships']}</b>\n"
+            f"🥈 Runner-up finishes: <b>{st['runner_ups']}</b>\n🔥 Playoff appearances: <b>{st['playoff_appearances']}</b>\n"
+            f"✅ League wins: <b>{st['league_wins']}</b>  ❌ losses: <b>{st['league_losses']}</b> ({wpct})\n"
+            f"📈 Tournament win rate: <b>{tpct}</b>\n🏏 Runs by your teams: <b>{st['runs_scored']}</b>\n🎯 Wickets by your teams: <b>{st['wickets_taken']}</b>")
+
+
+def history_text(rows: Sequence[Mapping]) -> str:
+    out = ["🏏 <b>IPL DRAFT — GROUP HISTORY</b>", ""]
+    for r in rows:
+        who = esc(r["champion"] or "?") + ("" if r["champion_kind"] == "HUMAN" else " 🤖")
+        out.append(f"#{r['tournament_id']} 👑 <b>{who}</b> · 🥈 {esc(r['runner_up'] or '?')} · {r['humans']} managers")
+    if not rows:
+        out.append("<i>No completed tournaments in this group yet.</i>")
+    return "\n".join(out)
+
+
+def status_text(t: Mapping, humans: int, extra: str = "") -> str:
+    labels = {"LOBBY": "Lobby", "DRAFTING": "Drafting", "SYSTEM_TEAM_GENERATION": "System teams drafting",
+              "FIXTURE_GENERATION": "Building fixtures", "LEAGUE_RUNNING": "League running",
+              "LEAGUE_COMPLETED": "League completed", "PLAYOFF_ELIMINATOR": "Playoffs — Eliminator",
+              "PLAYOFF_QUALIFIER_1": "Playoffs — Qualifier 1", "PLAYOFF_QUALIFIER_2": "Playoffs — Qualifier 2",
+              "PLAYOFF_FINAL": "Playoffs — Final", "COMPLETED": "Completed", "CANCELLED": "Cancelled",
+              "FAILED_RECOVERABLE": "⚠️ Paused (an admin can /iplresume)"}
+    return f"📊 <b>IPL DRAFT — Status</b>\n\nStage: <b>{labels.get(t['state'], t['state'])}</b>\nHuman managers: {humans}{extra}"

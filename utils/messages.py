@@ -25,7 +25,8 @@ def arena_picker_text(host_name: str) -> str:
         "🎮 <b>GAME ARENA</b>\n\n"
         f"<b>{esc(host_name)}</b> is starting a game. What do you want to play?\n\n"
         "⚔️ <b>Anime Draft</b> — draft a team, fight a league + Grand Final (3–8 players)\n"
-        "🔢 <b>Number Wars</b> — guess the secret target, last one standing wins (3–20 players)"
+        "🔢 <b>Number Wars</b> — guess the secret target, last one standing wins (3–20 players)\n"
+        "🏏 <b>IPL Draft</b> — draft 11 cricketers, play a full T20 league + IPL playoffs vs 8 franchises (2–8 players)"
     )
 
 
@@ -59,7 +60,13 @@ def help_text() -> str:
         "/nwrules — how Number Wars works\n"
         "/nwstats — your Number Wars rating & record\n"
         "In a round, send me a number from 1 to 100 in DM.\n"
-        "/leaderboard also has a 🔢 Number Wars board.\n"
+        "/leaderboard also has a 🔢 Number Wars board.\n\n"
+        "🏏 <b>IPL DRAFT</b>\n"
+        "/ipl — open an IPL Draft lobby (group)\n"
+        "/iplrules — how it works\n"
+        "/iplteam — your squad (DM)\n"
+        "/ipltable · /iplfixtures · /iplhistory — tournament views\n"
+        "/stats — your stats in every game\n"
     )
 
 

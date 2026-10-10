@@ -96,6 +96,15 @@ async def cancelgame_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
             if not await nw_service.cancel_match(ctx, nw_match, user.first_name or "the host"):
                 await message.reply_html("⚠️ That match already ended.")
             return
+        rt = context.bot_data.get("ipl")
+        ipl_t = await rt.repo.active_for_group(chat.id) if rt is not None else None
+        if ipl_t:
+            if user.id != ipl_t["host_id"] and not await is_admin(context.bot, chat.id, user.id):
+                return await message.reply_html("❌ Only the host/admin can cancel the game.")
+            from ipl_draft.services import tournament_service as ipl_tournament
+            if not await ipl_tournament.cancel(rt, ipl_t, user.first_name or "the host"):
+                await message.reply_html("⚠️ That tournament already ended.")
+            return
         return await message.reply_html("There is no active game here.")
     if user.id != game["host_id"] and not await is_admin(context.bot, chat.id, user.id):
         return await message.reply_html("❌ Only the host/admin can cancel the game.")

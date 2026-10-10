@@ -1,0 +1,138 @@
+"""Human drafting through DMs: offers, confirmation, picks, timeouts/auto-draft, progress display."""
+from __future__ import annotations
+
+import asyncio
+import logging
+import time
+
+from .. import keyboards as kb
+from .. import messages as m
+from ..engine.draft_engine import auto_pick
+from ..runtime import IplRuntime
+from . import notification_service as notify
+
+log = logging.getLogger(__name__)
+PROGRESS_MIN_GAP = 8.0       # seconds between edits of the group progress message (group rate limits)
+
+
+# ───────────────────────── offers ─────────────────────────
+async def kickoff(rt: IplRuntime, tid: int) -> None:
+    await update_progress(rt, tid, force=True)
+    await offers_for_teams(rt, tid)
+
+
+async def offers_for_teams(rt: IplRuntime, tid: int) -> None:
+    for team in await rt.repo.teams_needing_offer(tid):
+        await deliver_offer(rt, team)
+
+
+async def deliver_offer(rt: IplRuntime, team: dict) -> None:
+    """Open (or re-read) this team's current offer and DM it once. An undeliverable DM switches the team to auto-draft."""
+    res = await rt.repo.open_offer(team["id"])
+    if res.get("status") != "OPEN":
+        return
+    if res.get("dm_message_id") or team.get("auto_draft"):
+        return
+    text = m.offer_text(team, res, res["picks_done"], rt.s.draft_seconds)
+    sent = await notify.dm(rt, team["user_id"], text, kb.offer(res["offer_id"], res["candidates"], team["id"]))
+    if sent:
+        await rt.repo.set_offer_message(res["offer_id"], sent.message_id)
+    else:
+        log.warning("IPL: cannot DM user %s — switching team %s to auto-draft", team["user_id"], team["id"])
+        await rt.repo.set_auto_draft(team["id"])
+
+
+# ───────────────────────── callbacks (validated against the Telegram sender) ─────────────────────────
+async def _own_open_offer(rt: IplRuntime, user_id: int, offer_id: int) -> tuple[str, dict | None]:
+    offer = await rt.repo.get_offer(offer_id)
+    if not offer:
+        return "STALE", None
+    team = await rt.repo.team_of_user(offer["tournament_id"], user_id)
+    if not team or team["id"] != offer["team_id"]:
+        return "NOT_YOURS", None
+    if offer["status"] != "OPEN":
+        return "ALREADY", offer
+    return "OK", {**offer, "team": team}
+
+
+async def show_confirm(rt: IplRuntime, user_id: int, offer_id: int, pos: int) -> tuple[str, str | None, object | None]:
+    """Returns (status, text, markup)."""
+    st, offer = await _own_open_offer(rt, user_id, offer_id)
+    if st != "OK":
+        return st, None, None
+    card = next((c for c in offer["candidates"] if c["pos"] == pos), None)
+    if not card:
+        return "BAD_POS", None, None
+    return "OK", m.confirm_text(card["player"]), kb.confirm(offer_id, pos)
+
+
+async def show_offer_again(rt: IplRuntime, user_id: int, offer_id: int) -> tuple[str, str | None, object | None]:
+    st, offer = await _own_open_offer(rt, user_id, offer_id)
+    if st != "OK":
+        return st, None, None
+    team = offer["team"]
+    done = offer["round_no"] - 1
+    return "OK", m.offer_text(team, offer, done, rt.s.draft_seconds), kb.offer(offer_id, offer["candidates"], team["id"])
+
+
+async def confirm_pick(rt: IplRuntime, user_id: int, offer_id: int, pos: int, message_id: int | None) -> dict:
+    res = await rt.repo.pick(offer_id, pos, user_id, "USER", rt.s.auto_after_timeouts)
+    if res.get("status") == "OK":
+        await after_pick(rt, res, message_id, auto=False)
+    return res
+
+
+async def after_pick(rt: IplRuntime, res: dict, message_id: int | None, *, auto: bool) -> None:
+    try:
+        roster = await rt.repo.team_roster(res["team_id"])
+        team, players = roster["team"], roster["players"]
+        user_id = team["user_id"]
+        if not team.get("auto_draft") or not auto:
+            await notify.edit_dm(rt, user_id, message_id, m.drafted_text(res["player"], players, auto=auto))
+        if res["done"]:
+            await notify.dm(rt, user_id, m.draft_complete_text(team, players), kb.draft_done(team["id"], res["tournament_id"]))
+        else:
+            await deliver_offer(rt, team)
+        await update_progress(rt, res["tournament_id"], force=bool(res["done"]))
+        if res.get("all_humans_done"):
+            from . import simulation_worker
+            rt.ctx.spawn(simulation_worker.advance(rt, res["tournament_id"]), name=f"ipl-advance-{res['tournament_id']}")
+    except Exception:  # noqa: BLE001  — a display problem must never undo a committed pick
+        log.exception("IPL after_pick failed (pick is already saved)")
+
+
+# ───────────────────────── worker side ─────────────────────────
+async def draft_tick(rt: IplRuntime) -> None:
+    """Auto-picks for expired deadlines / auto-draft teams, and (re)opens offers after restarts."""
+    for due in await rt.repo.due_offers():
+        try:
+            pos = auto_pick(due["candidates"], due["roster"], rt.rng)
+            mode = "TIMEOUT" if due["timed_out"] and not due["auto_draft"] else "AUTO"
+            res = await rt.repo.pick(due["offer_id"], pos, due.get("user_id") or 0, mode, rt.s.auto_after_timeouts)
+            if res.get("status") == "OK":
+                await after_pick(rt, res, due.get("dm_message_id"), auto=True)
+        except Exception:  # noqa: BLE001
+            log.exception("IPL auto-pick failed for offer %s", due.get("offer_id"))
+    for t in await rt.repo.by_states(["DRAFTING"]):
+        await offers_for_teams(rt, t["id"])
+    await rt.repo.release_stale_reservations()
+
+
+async def update_progress(rt: IplRuntime, tid: int, *, force: bool = False) -> None:
+    now = time.monotonic()
+    last = rt.progress_last.get(tid, 0.0)
+    if not force and now - last < PROGRESS_MIN_GAP:
+        if tid not in rt.progress_pending:                       # one trailing update is enough
+            rt.progress_pending.add(tid)
+
+            async def later() -> None:
+                await asyncio.sleep(PROGRESS_MIN_GAP - (time.monotonic() - last))
+                rt.progress_pending.discard(tid)
+                await update_progress(rt, tid, force=True)
+            rt.ctx.spawn(later(), name=f"ipl-progress-{tid}")
+        return
+    rt.progress_last[tid] = now
+    t = await rt.repo.get(tid)
+    if not t or t["state"] != "DRAFTING":
+        return
+    await notify.set_dashboard(rt, t, m.draft_progress_text(await rt.repo.draft_progress(tid)))

@@ -145,3 +145,10 @@ from their persisted deadline. One asyncio task per *match*, not per player. Hid
 Code map: `game/number_wars.py` (pure rules) · `services/number_wars_service.py` (lobby, round loop, recovery) ·
 `handlers/number_wars.py` + `handlers/arena.py` (Telegram) · `repositories/number_wars.py` · `database/number_wars.sql` ·
 `utils/nw_messages.py`. Tests: `tests/test_number_wars*.py` (rules, end-to-end match flow with fakes, message limits).
+
+
+## 🏏 IPL DRAFT
+Third game: draft 11 IPL cricketers (11 random choices per pick, in DM), then a full ball-by-ball T20 double round robin and IPL
+playoffs against 8 system franchises (2–8 human managers). Apply `database/ipl_draft.sql` third, import players
+(`python -m scripts.import_ipl_players --seed` or `--cricsheet ipl_json.zip`), start the bot. Commands: `/ipl /iplrules /iplteam
+/ipltable /iplfixtures /iplhistory /iplresume /stats`. Full design, data status, tests and limitations: [docs/IPL_DRAFT.md](docs/IPL_DRAFT.md).

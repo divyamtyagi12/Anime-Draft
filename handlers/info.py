@@ -60,6 +60,17 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         nw_match = await ctx.nw.active_for_user(user.id)
     if nw_match:
         return await message.reply_html(await nw_service.status_text(ctx, nw_match))
+    rt = context.bot_data.get("ipl")
+    if rt is not None and rt.s.enabled and not (chat.type in GROUP_TYPES and await ctx.games.active_for_group(chat.id)):
+        ipl_t = (await rt.repo.active_for_group(chat.id)) if chat.type in GROUP_TYPES else await rt.repo.active_for_user(user.id)
+        if ipl_t:
+            from ipl_draft import messages as ipl_msg
+            teams = await rt.repo.lobby_teams(ipl_t["id"])
+            extra = ""
+            if ipl_t["state"] == "LEAGUE_RUNNING":
+                prog = await rt.repo.league_progress(ipl_t["id"])
+                extra = f"\nLeague matches: {prog.get('done', 0)}/{prog.get('total', 0)}"
+            return await message.reply_html(ipl_msg.status_text(ipl_t, len(teams), extra))
     game = await _game_for(ctx, update)
     if not game:
         return await message.reply_html("No game found. Send /start in a group to create one.")

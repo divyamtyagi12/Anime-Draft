@@ -52,7 +52,16 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             await message.reply_html("⚠️ A Number Wars match is in progress here. Use /status to see it.")
         return
 
-    await arena.show_picker(ctx, chat.id, user)   # ⚔️ Anime Draft  |  🔢 Number Wars
+    ipl_t = await arena.ipl_active_for_group(ctx, chat.id)
+    if ipl_t:
+        if ipl_t["state"] == "LOBBY":
+            from ipl_draft.services import notification_service as ipl_notify
+            await ipl_notify.refresh_lobby(context.bot_data["ipl"], ipl_t["id"], repost=True)
+        else:
+            await message.reply_html("⚠️ An IPL Draft is in progress here. Use /status to see it.")
+        return
+
+    await arena.show_picker(ctx, chat.id, user)   # ⚔️ Anime Draft | 🔢 Number Wars | 🏏 IPL Draft
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
